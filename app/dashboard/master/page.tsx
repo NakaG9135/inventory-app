@@ -244,43 +244,44 @@ function MasterPage() {
       )}
 
       {/* 商品一覧 */}
-      <table className="table-auto w-full border-collapse border text-sm">
+      <div className="overflow-x-auto">
+      <table className="table-auto border-collapse border text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border px-3 py-2 text-left">種類</th>
-            <th className="border px-3 py-2 text-left">メーカー</th>
-            <th className="border px-3 py-2 text-left">詳細</th>
-            <th className="border px-3 py-2 text-center">単位</th>
-            <th className="border px-3 py-2 text-center">数量</th>
-            <th className="border px-3 py-2 text-center w-36">操作</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">種類</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">メーカー</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">詳細</th>
+            <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
+            <th className="border px-3 py-2 text-center whitespace-nowrap w-1">数量</th>
+            <th className="border px-3 py-2 text-center w-1">操作</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item) =>
             editingId === item.id ? (
               <tr key={item.id} className="bg-yellow-50">
-                <td className="border px-2 py-1">
+                <td className="border px-2 py-1 whitespace-nowrap w-1">
                   <input value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
                     className="border rounded p-1 w-full text-sm" />
                 </td>
-                <td className="border px-2 py-1">
+                <td className="border px-2 py-1 whitespace-nowrap w-1">
                   <input value={editForm.maker} onChange={(e) => setEditForm({ ...editForm, maker: e.target.value })}
                     className="border rounded p-1 w-full text-sm" />
                 </td>
-                <td className="border px-2 py-1">
+                <td className="border px-2 py-1 whitespace-nowrap w-1">
                   <input value={editForm.detail} onChange={(e) => setEditForm({ ...editForm, detail: e.target.value })}
                     className="border rounded p-1 w-full text-sm" />
                 </td>
-                <td className="border px-2 py-1">
+                <td className="border px-2 py-1 whitespace-nowrap w-1">
                   <input value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })}
                     className="border rounded p-1 w-full text-sm" />
                 </td>
-                <td className="border px-2 py-1">
+                <td className="border px-2 py-1 whitespace-nowrap w-1">
                   <input type="number" value={editForm.quantity}
                     onChange={(e) => setEditForm({ ...editForm, quantity: parseInt(e.target.value) || 0 })}
                     className="border rounded p-1 w-full text-sm text-center" />
                 </td>
-                <td className="border px-2 py-1 text-center space-x-1">
+                <td className="border px-2 py-1 text-center space-x-1 w-1">
                   <button onClick={() => saveEdit(item.id)}
                     className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">保存</button>
                   <button onClick={() => setEditingId(null)}
@@ -289,12 +290,12 @@ function MasterPage() {
               </tr>
             ) : (
               <tr key={item.id} className="hover:bg-gray-50">
-                <td className="border px-3 py-2">{item.type}</td>
-                <td className="border px-3 py-2">{item.maker}</td>
-                <td className="border px-3 py-2">{item.detail}</td>
-                <td className="border px-3 py-2 text-center">{item.unit}</td>
-                <td className="border px-3 py-2 text-center font-bold">{item.quantity}</td>
-                <td className="border px-3 py-2 text-center space-x-1">
+                <td className="border px-3 py-2 whitespace-nowrap w-1">{item.type}</td>
+                <td className="border px-3 py-2 whitespace-nowrap w-1">{item.maker}</td>
+                <td className="border px-3 py-2 whitespace-nowrap w-1">{item.detail}</td>
+                <td className="border px-3 py-2 text-center whitespace-nowrap w-1">{item.unit}</td>
+                <td className="border px-3 py-2 text-center font-bold whitespace-nowrap w-1">{item.quantity}</td>
+                <td className="border px-3 py-2 text-center space-x-1 w-1">
                   <button onClick={() => startEdit(item)}
                     className="bg-yellow-400 hover:bg-yellow-500 text-white px-2 py-1 rounded text-xs">編集</button>
                   <button onClick={() => deleteItem(item.id)}
@@ -305,6 +306,7 @@ function MasterPage() {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

@@ -132,40 +132,42 @@ function LogsPage() {
       </button>
 
       {/* ログ一覧 */}
-      <table className="table-auto border-collapse border w-full">
+      <div className="overflow-x-auto">
+      <table className="table-auto border-collapse border text-sm">
         <thead>
           <tr>
-            <th className="border px-4 py-2">ユーザー</th>
-            <th className="border px-4 py-2">種類</th>
-            <th className="border px-4 py-2">メーカー</th>
-            <th className="border px-4 py-2">詳細</th>
-            <th className="border px-4 py-2">入出庫</th>
-            <th className="border px-4 py-2">数量</th>
-            <th className="border px-4 py-2">現場名</th>
-            <th className="border px-4 py-2">日時</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">ユーザー</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">種類</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">メーカー</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">詳細</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">入出庫</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">数量</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">現場名</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">日時</th>
           </tr>
         </thead>
         <tbody>
           {logs.map((log) => (
             <tr key={log.id}>
-              <td className="border px-4 py-2">{log.users_profile?.name}</td>
-              <td className="border px-4 py-2">{log.inventory?.type}</td>
-              <td className="border px-4 py-2">{log.inventory?.maker}</td>
-              <td className="border px-4 py-2">{log.inventory?.detail}</td>
-              <td className="border px-4 py-2">
+              <td className="border px-4 py-2 whitespace-nowrap w-1">{log.users_profile?.name}</td>
+              <td className="border px-4 py-2 whitespace-nowrap w-1">{log.inventory?.type}</td>
+              <td className="border px-4 py-2 whitespace-nowrap w-1">{log.inventory?.maker}</td>
+              <td className="border px-4 py-2 whitespace-nowrap w-1">{log.inventory?.detail}</td>
+              <td className="border px-4 py-2 whitespace-nowrap w-1">
                 {log.change_type === "in" ? "入庫" : "出庫"}
               </td>
-              <td className="border px-4 py-2">
+              <td className="border px-4 py-2 whitespace-nowrap w-1">
                 {log.quantity} {log.inventory?.unit}
               </td>
-              <td className="border px-4 py-2">{log.site_name || "-"}</td>
-              <td className="border px-4 py-2">
+              <td className="border px-4 py-2 whitespace-nowrap w-1">{log.site_name || "-"}</td>
+              <td className="border px-4 py-2 whitespace-nowrap w-1">
                 {new Date(log.created_at).toLocaleString("ja-JP")}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
