@@ -74,8 +74,15 @@ export default function RegisterPage() {
           placeholder="パスワード"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="border p-2 w-full mb-2"
+          className="border p-2 w-full mb-1"
         />
+        <ul className="text-xs text-gray-500 mb-2 pl-1 space-y-0.5">
+          <li>・10文字以上</li>
+          <li>・大文字（A〜Z）を含む</li>
+          <li>・小文字（a〜z）を含む</li>
+          <li>・数字（0〜9）を含む</li>
+          <li>・記号（! @ # $ % ^ &amp; *）のいずれかを含む</li>
+        </ul>
         <button
           onClick={handleRegister}
           className="bg-green-500 text-white px-4 py-2 w-full rounded"
