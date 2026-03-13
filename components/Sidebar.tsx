@@ -42,6 +42,7 @@ export default function Sidebar() {
     { href: "/dashboard/profile", label: "登録情報変更", adminOnly: false },
     { href: "/dashboard/logs", label: "入出庫ログ", adminOnly: true },
     { href: "/dashboard/master", label: "商品マスタ編集", adminOnly: true },
+    { href: "/dashboard/workers", label: "作業員名簿", adminOnly: true },
     { href: "/dashboard/settings", label: "システム設定", adminOnly: true },
   ];
 

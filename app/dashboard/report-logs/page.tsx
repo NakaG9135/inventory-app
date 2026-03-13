@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 interface ReportMaterial {
   id: string;
   quantity: number;
+  group_index: number | null;
   inventory: {
     type: string;
     maker: string;
@@ -22,6 +23,8 @@ interface Report {
   work_time: string | null;
   vehicles: string[];
   workers: string[];
+  work_description: string | null;
+  material_group_labels: string[] | null;
   created_at: string;
   user_id: string;
   status: string;
@@ -47,12 +50,15 @@ export default function ReportLogsPage() {
         work_time,
         vehicles,
         workers,
+        work_description,
+        material_group_labels,
         created_at,
         user_id,
         status,
         daily_report_materials(
           id,
           quantity,
+          group_index,
           inventory!item_id(type, maker, detail, unit)
         )
       `)
@@ -242,33 +248,63 @@ export default function ReportLogsPage() {
                       </div>
                     </div>
 
-                    {/* 使用部材 */}
+                    {/* 作業内容 */}
+                    {report.work_description && (
+                      <div className="md:col-span-2">
+                        <span className="text-xs text-gray-400 block mb-1">作業内容</span>
+                        <p className="text-sm whitespace-pre-wrap bg-gray-50 rounded px-3 py-2 border">
+                          {report.work_description}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* 使用部材（グループ別） */}
                     <div className="md:col-span-2">
                       <span className="text-xs text-gray-400 block mb-2">使用部材</span>
-                      {report.daily_report_materials?.length > 0 ? (
-                        <table className="table-auto border-collapse border text-xs w-full">
-                          <thead className="bg-gray-100">
-                            <tr>
-                              <th className="border px-3 py-1 text-left whitespace-nowrap">種類</th>
-                              <th className="border px-3 py-1 text-left whitespace-nowrap">メーカー</th>
-                              <th className="border px-3 py-1 text-left whitespace-nowrap">詳細</th>
-                              <th className="border px-3 py-1 text-center whitespace-nowrap">数量</th>
-                              <th className="border px-3 py-1 text-center whitespace-nowrap">単位</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {report.daily_report_materials.map((m) => (
-                              <tr key={m.id} className="hover:bg-gray-50">
-                                <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.type || "—"}</td>
-                                <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.maker || "—"}</td>
-                                <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.detail || "—"}</td>
-                                <td className="border px-3 py-1 text-center font-bold">{m.quantity}</td>
-                                <td className="border px-3 py-1 text-center">{m.inventory?.unit || "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
+                      {report.daily_report_materials?.length > 0 ? (() => {
+                        const labels = report.material_group_labels || [];
+                        const maxIdx = Math.max(...report.daily_report_materials.map((m) => m.group_index ?? 0));
+                        const groupIndices = Array.from({ length: maxIdx + 1 }, (_, i) => i);
+                        return (
+                          <div className="space-y-3">
+                            {groupIndices.map((gi) => {
+                              const mats = report.daily_report_materials.filter((m) => (m.group_index ?? 0) === gi);
+                              if (mats.length === 0) return null;
+                              return (
+                                <div key={gi}>
+                                  {(groupIndices.length > 1 || labels[gi]) && (
+                                    <div className="text-xs font-semibold text-blue-700 mb-1">
+                                      {String.fromCharCode(0x2460 + gi)}{labels[gi] ? `　${labels[gi]}` : ""}
+                                    </div>
+                                  )}
+                                  <table className="table-auto border-collapse border text-xs w-full">
+                                    <thead className="bg-gray-100">
+                                      <tr>
+                                        <th className="border px-3 py-1 text-left whitespace-nowrap">種類</th>
+                                        <th className="border px-3 py-1 text-left whitespace-nowrap">メーカー</th>
+                                        <th className="border px-3 py-1 text-left whitespace-nowrap">詳細</th>
+                                        <th className="border px-3 py-1 text-center whitespace-nowrap">数量</th>
+                                        <th className="border px-3 py-1 text-center whitespace-nowrap">単位</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {mats.map((m) => (
+                                        <tr key={m.id} className="hover:bg-gray-50">
+                                          <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.type || "—"}</td>
+                                          <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.maker || "—"}</td>
+                                          <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.detail || "—"}</td>
+                                          <td className="border px-3 py-1 text-center font-bold">{m.quantity}</td>
+                                          <td className="border px-3 py-1 text-center">{m.inventory?.unit || "—"}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })() : (
                         <span className="text-gray-400 text-xs">—</span>
                       )}
                     </div>
