@@ -119,8 +119,8 @@ export default function ReportPage() {
       .single();
 
     if (reportError || !report) {
-      console.error(reportError);
-      alert("日報の保存に失敗しました: " + reportError?.message);
+      console.error("日報保存エラー:", JSON.stringify(reportError));
+      alert("日報の保存に失敗しました\ncode: " + reportError?.code + "\nmessage: " + reportError?.message + "\ndetails: " + reportError?.details);
       setSubmitting(false);
       return;
     }
