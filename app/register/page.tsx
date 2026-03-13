@@ -28,17 +28,6 @@ export default function RegisterPage() {
       return;
     }
 
-    // メールアドレス重複チェック
-    const { data: existing } = await supabase
-      .from("users_profile")
-      .select("id")
-      .eq("email", email)
-      .single();
-    if (existing) {
-      setError("このメールアドレスはすでに登録されています。別のメールアドレスをお使いください。");
-      return;
-    }
-
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -47,6 +36,12 @@ export default function RegisterPage() {
 
     if (error) {
       setError(error.message);
+      return;
+    }
+
+    // 既存メールアドレスの場合、identitiesが空になる
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      setError("このメールアドレスはすでに登録されています。別のメールアドレスをお使いください。");
       return;
     }
 
