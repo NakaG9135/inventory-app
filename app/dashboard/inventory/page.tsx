@@ -103,7 +103,7 @@ export default function InventoryPage() {
             <th className="border px-3 py-2 text-left whitespace-nowrap w-1">詳細</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">在庫数</th>
-            <th className="border px-3 py-2 text-center">操作</th>
+            <th className="border px-3 py-2 text-center w-1">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -114,7 +114,7 @@ export default function InventoryPage() {
               <td className="border px-3 py-2 whitespace-nowrap">{item.detail}</td>
               <td className="border px-3 py-2 text-center whitespace-nowrap">{item.unit}</td>
               <td className="border px-3 py-2 text-center font-bold whitespace-nowrap">{item.quantity}</td>
-              <td className="border px-3 py-3">
+              <td className="border px-3 py-3 w-1">
                 <div className="flex flex-col gap-2">
 
                   {/* 数量入力行 */}
