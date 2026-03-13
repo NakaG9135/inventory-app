@@ -65,7 +65,15 @@ export default function RegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100">
       <div className="bg-white p-6 rounded shadow w-96">
-        <h1 className="text-xl mb-4">新規登録</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl">新規登録</h1>
+          <button
+            onClick={() => router.push("/login")}
+            className="text-sm text-blue-500 hover:underline"
+          >
+            ← ログイン画面へ
+          </button>
+        </div>
 
         <div className="flex gap-2 mb-2">
           <input
