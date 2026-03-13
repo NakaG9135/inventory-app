@@ -1,11 +1,18 @@
-// ひらがな→カタカナ正規化
-function normalize(str: string): string {
-  return str.trim().toLowerCase().replace(/[\u3041-\u3096]/g, (ch) =>
+// 全角英数→半角
+function toHankaku(str: string): string {
+  return str
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/　/g, " ");
+}
+
+// ひらがな→カタカナ
+function toKatakana(str: string): string {
+  return str.replace(/[\u3041-\u3096]/g, (ch) =>
     String.fromCharCode(ch.charCodeAt(0) + 0x60)
   );
 }
 
-// ローマ字→カタカナ変換
+// ローマ字→カタカナ（長音符・促音は無視して読み変換）
 function romajiToKatakana(str: string): string {
   let s = str;
   const r: [RegExp, string][] = [
@@ -46,9 +53,9 @@ function romajiToKatakana(str: string): string {
   return s;
 }
 
-// 完全正規化：ひらがな→カタカナ → ローマ字→カタカナ
+// 完全正規化：全角→半角 → 小文字 → ひらがな→カタカナ → ローマ字→カタカナ
 function fullNormalize(str: string): string {
-  return romajiToKatakana(normalize(str));
+  return romajiToKatakana(toKatakana(toHankaku(str.trim().toLowerCase())));
 }
 
 export function isFuzzyMatch(a: string, b: string): boolean {
@@ -56,15 +63,8 @@ export function isFuzzyMatch(a: string, b: string): boolean {
   const y = fullNormalize(b);
   if (!x || !y) return false;
 
-  // 部分一致
+  // 部分一致（前方一致・後方一致・含む）
   if (x.includes(y) || y.includes(x)) return true;
-
-  // ユニグラム類似度（1文字単位の重なり）
-  const cx = new Set(x.split(""));
-  const cy = new Set(y.split(""));
-  let commonChars = 0;
-  cx.forEach((c) => { if (cy.has(c)) commonChars++; });
-  if ((2 * commonChars) / (cx.size + cy.size) >= 0.3) return true;
 
   // バイグラム類似度（Dice係数）
   const getBigrams = (str: string): Set<string> => {
