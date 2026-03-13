@@ -287,16 +287,10 @@ export default function InventoryPage() {
                       type="text"
                       placeholder="現場名（必須）"
                       value={siteNames[item.id] || ""}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSiteNames((prev) => ({ ...prev, [item.id]: val }));
-                        if (val.trim()) {
-                          setSiteModal({ itemId: item.id, query: val });
-                        } else {
-                          setSiteModal(null);
-                        }
-                      }}
-                      onFocus={() => {
+                      onChange={(e) =>
+                        setSiteNames((prev) => ({ ...prev, [item.id]: e.target.value }))
+                      }
+                      onBlur={() => {
                         const val = siteNames[item.id] || "";
                         if (val.trim()) setSiteModal({ itemId: item.id, query: val });
                       }}
