@@ -9,6 +9,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
+  const [registered, setRegistered] = useState(false);
   const router = useRouter();
 
   const handleRegister = async () => {
@@ -49,7 +50,7 @@ export default function RegisterPage() {
       });
     }
 
-    router.push("/login");
+    setRegistered(true);
   };
 
   return (
@@ -92,6 +93,26 @@ export default function RegisterPage() {
         </button>
         {error && <p className="text-red-500 mt-2">{error}</p>}
       </div>
+
+      {/* 登録完了ポップアップ */}
+      {registered && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-8 w-80 text-center">
+            <div className="text-4xl mb-4">✉️</div>
+            <h2 className="text-lg font-bold mb-2">仮登録が完了しました</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              <span className="font-semibold">{email}</span> に確認メールを送信しました。<br />
+              メール内のURLをクリックして登録を完了してください。
+            </p>
+            <button
+              onClick={() => router.push("/login")}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded w-full"
+            >
+              ログイン画面へ
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
