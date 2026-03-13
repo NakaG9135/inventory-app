@@ -22,12 +22,13 @@ interface Report {
   vehicles: string[];
   workers: string[];
   created_at: string;
-  users_profile: { name: string } | null;
+  user_id: string;
   daily_report_materials: ReportMaterial[];
 }
 
 export default function ReportLogsPage() {
   const [reports, setReports] = useState<Report[]>([]);
+  const [userNames, setUserNames] = useState<{ [id: string]: string }>({});
   const [filterSite, setFilterSite] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterWorker, setFilterWorker] = useState("");
@@ -44,7 +45,7 @@ export default function ReportLogsPage() {
         vehicles,
         workers,
         created_at,
-        users_profile!user_id(name),
+        user_id,
         daily_report_materials(
           id,
           quantity,
@@ -65,6 +66,20 @@ export default function ReportLogsPage() {
     }
 
     let filtered = (data || []) as unknown as Report[];
+
+    // ユーザー名を一括取得
+    const userIds = [...new Set(filtered.map((r) => r.user_id).filter(Boolean))];
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("users_profile")
+        .select("id, name")
+        .in("id", userIds);
+      if (profiles) {
+        const map: { [id: string]: string } = {};
+        profiles.forEach((p: any) => { map[p.id] = p.name; });
+        setUserNames(map);
+      }
+    }
 
     if (filterSite) {
       filtered = filtered.filter((r) =>
@@ -171,7 +186,7 @@ export default function ReportLogsPage() {
                       )}
                       <div>
                         <span className="text-xs text-gray-400 block">登録者</span>
-                        <span>{(report.users_profile as any)?.name || "—"}</span>
+                        <span>{userNames[report.user_id] || "—"}</span>
                       </div>
                       <div>
                         <span className="text-xs text-gray-400 block">登録日時</span>
