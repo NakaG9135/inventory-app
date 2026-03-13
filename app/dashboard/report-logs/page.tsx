@@ -56,6 +56,7 @@ export default function ReportLogsPage() {
           inventory!item_id(type, maker, detail, unit)
         )
       `)
+      .eq("status", "confirmed")
       .order("work_date", { ascending: false })
       .order("created_at", { ascending: false });
 

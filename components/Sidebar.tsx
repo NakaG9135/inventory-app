@@ -37,6 +37,7 @@ export default function Sidebar() {
   const links = [
     { href: "/dashboard/inventory", label: "在庫一覧", adminOnly: false },
     { href: "/dashboard/report", label: "日報", adminOnly: false },
+    { href: "/dashboard/report-drafts", label: "一時保存した日報", adminOnly: false },
     { href: "/dashboard/report-logs", label: "日報ログ", adminOnly: false },
     { href: "/dashboard/profile", label: "登録情報変更", adminOnly: false },
     { href: "/dashboard/logs", label: "入出庫ログ", adminOnly: true },

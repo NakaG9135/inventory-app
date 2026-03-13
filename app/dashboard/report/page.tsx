@@ -130,8 +130,9 @@ function ReportForm() {
     if (!siteName.trim()) { alert("現場名を入力してください"); return; }
     setSaving(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData?.user) { alert("ログインしてください"); setSaving(false); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { alert("ログインしてください"); setSaving(false); return; }
+    const userData = { user: session.user };
 
     let reportId = draftId;
 
@@ -185,8 +186,9 @@ function ReportForm() {
     if (validMaterials.length === 0) { alert("部材を1行以上入力してください"); return; }
     setSubmitting(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData?.user) { alert("ログインしてください"); setSubmitting(false); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { alert("ログインしてください"); setSubmitting(false); return; }
+    const userData = { user: session.user };
 
     let reportId = draftId;
 
