@@ -3,6 +3,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+function isSimilarSite(a: string, b: string): boolean {
+  const x = a.trim().toLowerCase();
+  const y = b.trim().toLowerCase();
+  if (!x || !y) return false;
+  return x.includes(y) || y.includes(x);
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState<any[]>([]);
   const [searchCategory, setSearchCategory] = useState("");
@@ -10,6 +17,9 @@ export default function InventoryPage() {
   const [searchDetail, setSearchDetail] = useState("");
   const [quantities, setQuantities] = useState<{ [key: string]: number }>({});
   const [siteNames, setSiteNames] = useState<{ [key: string]: string }>({});
+  const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
+  const [siteModal, setSiteModal] = useState<{ itemId: string; query: string } | null>(null);
+  const [siteConfirm, setSiteConfirm] = useState<{ itemId: string; query: string } | null>(null);
 
   const fetchItems = async () => {
     let query = supabase.from("inventory").select("*").order("created_at", { ascending: true });
@@ -21,9 +31,24 @@ export default function InventoryPage() {
     else setItems(data || []);
   };
 
+  const fetchPastSiteNames = async () => {
+    const { data } = await supabase
+      .from("inventory_logs")
+      .select("site_name")
+      .not("site_name", "is", null);
+    if (data) {
+      const unique = [...new Set(data.map((d: any) => d.site_name).filter(Boolean))] as string[];
+      setPastSiteNames(unique);
+    }
+  };
+
   useEffect(() => {
     fetchItems();
   }, [searchCategory, searchManufacturer, searchDetail]);
+
+  useEffect(() => {
+    fetchPastSiteNames();
+  }, []);
 
   const adjustQuantity = (id: string, delta: number) => {
     setQuantities((prev) => ({
@@ -72,14 +97,111 @@ export default function InventoryPage() {
     setQuantities((prev) => ({ ...prev, [id]: 0 }));
     setSiteNames((prev) => ({ ...prev, [id]: "" }));
     fetchItems();
+    fetchPastSiteNames();
   };
 
   const canSubmit = (id: string) =>
     (quantities[id] || 0) > 0 && !!siteNames[id]?.trim();
 
+  const selectSite = (itemId: string, name: string) => {
+    setSiteNames((prev) => ({ ...prev, [itemId]: name }));
+    setSiteModal(null);
+    setSiteConfirm(null);
+  };
+
+  const filteredSites = siteModal
+    ? pastSiteNames.filter((s) => isSimilarSite(s, siteModal.query))
+    : [];
+
   return (
     <div className="p-6">
       <h1 className="text-xl font-bold mb-4">在庫一覧</h1>
+
+      {/* 現場名サジェストモーダル */}
+      {siteModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+            <h2 className="text-base font-bold mb-1">現場名の確認</h2>
+            <p className="text-xs text-gray-500 mb-2">編集すると随時再検索されます</p>
+            <input
+              type="text"
+              value={siteModal.query}
+              autoFocus
+              onChange={(e) => {
+                const val = e.target.value;
+                setSiteModal({ ...siteModal, query: val });
+                setSiteNames((prev) => ({ ...prev, [siteModal.itemId]: val }));
+              }}
+              className="border rounded p-2 w-full text-sm mb-3"
+            />
+            {filteredSites.length > 0 ? (
+              <div className="mb-3">
+                <p className="text-xs text-gray-500 mb-1">これですか？</p>
+                <ul className="space-y-1 max-h-40 overflow-y-auto">
+                  {filteredSites.map((s) => (
+                    <li key={s}>
+                      <button
+                        onClick={() => selectSite(siteModal.itemId, s)}
+                        className="w-full text-left border rounded px-3 py-2 text-sm hover:bg-blue-50 hover:border-blue-300"
+                      >
+                        {s}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 mb-3">類似する現場名はありません</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setSiteConfirm({ itemId: siteModal.itemId, query: siteModal.query });
+                  setSiteModal(null);
+                }}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm font-bold"
+              >
+                新規登録
+              </button>
+              <button
+                onClick={() => setSiteModal(null)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新規現場名確認モーダル */}
+      {siteConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+            <h2 className="text-base font-bold mb-3">新規現場名の確認</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              「<span className="font-semibold text-blue-700">{siteConfirm.query}</span>」を新しい現場名として登録しますか？
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => selectSite(siteConfirm.itemId, siteConfirm.query)}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-bold"
+              >
+                OK
+              </button>
+              <button
+                onClick={() => {
+                  setSiteModal({ itemId: siteConfirm.itemId, query: siteConfirm.query });
+                  setSiteConfirm(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
+              >
+                NO
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 検索 */}
       <div className="mb-4 flex gap-2 flex-wrap">
@@ -147,9 +269,19 @@ export default function InventoryPage() {
                       type="text"
                       placeholder="現場名（必須）"
                       value={siteNames[item.id] || ""}
-                      onChange={(e) =>
-                        setSiteNames({ ...siteNames, [item.id]: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSiteNames((prev) => ({ ...prev, [item.id]: val }));
+                        if (val.trim()) {
+                          setSiteModal({ itemId: item.id, query: val });
+                        } else {
+                          setSiteModal(null);
+                        }
+                      }}
+                      onFocus={() => {
+                        const val = siteNames[item.id] || "";
+                        if (val.trim()) setSiteModal({ itemId: item.id, query: val });
+                      }}
                       className="border rounded p-1 text-sm flex-1"
                     />
                   </div>
