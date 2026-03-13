@@ -147,6 +147,11 @@ function MasterPage() {
     }
   };
 
+  // 検索
+  const [searchCategory, setSearchCategory] = useState("");
+  const [searchMaker, setSearchMaker] = useState("");
+  const [searchDetail, setSearchDetail] = useState("");
+
   // ソート
   const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -157,13 +162,19 @@ function MasterPage() {
   };
   const sortIcon = (key: "type" | "maker" | "detail") =>
     sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : " ⇅";
+  const filteredItems = items.filter((item) => {
+    if (searchCategory && !item.type?.toLowerCase().includes(searchCategory.toLowerCase())) return false;
+    if (searchMaker && !item.maker?.toLowerCase().includes(searchMaker.toLowerCase())) return false;
+    if (searchDetail && !item.detail?.toLowerCase().includes(searchDetail.toLowerCase())) return false;
+    return true;
+  });
   const sortedItems = sortKey
-    ? [...items].sort((a, b) => {
+    ? [...filteredItems].sort((a, b) => {
         const av = (a[sortKey] || "").toLowerCase();
         const bv = (b[sortKey] || "").toLowerCase();
         return sortDir === "asc" ? av.localeCompare(bv, "ja") : bv.localeCompare(av, "ja");
       })
-    : items;
+    : filteredItems;
 
   // 種類サジェスト候補（ユニーク）
   const typeMatches = typeModal
@@ -473,6 +484,19 @@ function MasterPage() {
           </div>
         </div>
       )}
+
+      {/* 検索 */}
+      <div className="mb-4 flex gap-2 flex-wrap">
+        <input type="text" placeholder="種類で検索" value={searchCategory}
+          onChange={(e) => setSearchCategory(e.target.value)}
+          className="border rounded p-2 text-sm" />
+        <input type="text" placeholder="メーカーで検索" value={searchMaker}
+          onChange={(e) => setSearchMaker(e.target.value)}
+          className="border rounded p-2 text-sm" />
+        <input type="text" placeholder="詳細で検索" value={searchDetail}
+          onChange={(e) => setSearchDetail(e.target.value)}
+          className="border rounded p-2 text-sm" />
+      </div>
 
       {/* 商品一覧 */}
       <div className="overflow-x-auto">
