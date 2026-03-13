@@ -14,6 +14,7 @@ export default function InventoryPage() {
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
   const [siteModal, setSiteModal] = useState<{ itemId: string; query: string } | null>(null);
   const [siteConfirm, setSiteConfirm] = useState<{ itemId: string; query: string } | null>(null);
+  const [siteAction, setSiteAction] = useState<{ itemId: string; siteName: string } | null>(null);
   const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -53,10 +54,9 @@ export default function InventoryPage() {
     }));
   };
 
-  const updateQuantity = async (id: string, change: number) => {
+  const updateQuantity = async (id: string, change: number, siteName: string) => {
     const value = quantities[id];
     if (!value || value <= 0) return;
-    if (!siteNames[id]?.trim()) return;
 
     const { data: userData } = await supabase.auth.getUser();
     if (!userData?.user) {
@@ -83,7 +83,7 @@ export default function InventoryPage() {
       change_type: change > 0 ? "in" : "out",
       quantity: value,
       user_id: userData.user.id,
-      site_name: siteNames[id] || null,
+      site_name: siteName || null,
     });
     if (logError) {
       console.error("ログ保存エラー:", logError.message, logError.code);
@@ -92,12 +92,10 @@ export default function InventoryPage() {
 
     setQuantities((prev) => ({ ...prev, [id]: 0 }));
     setSiteNames((prev) => ({ ...prev, [id]: "" }));
+    setSiteAction(null);
     fetchItems();
     fetchPastSiteNames();
   };
-
-  const canSubmit = (id: string) =>
-    (quantities[id] || 0) > 0 && !!siteNames[id]?.trim();
 
   const toggleSort = (key: "type" | "maker" | "detail") => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -113,8 +111,9 @@ export default function InventoryPage() {
       })
     : items;
 
-  const selectSite = (itemId: string, name: string) => {
+  const openSiteAction = (itemId: string, name: string) => {
     setSiteNames((prev) => ({ ...prev, [itemId]: name }));
+    setSiteAction({ itemId, siteName: name });
     setSiteModal(null);
     setSiteConfirm(null);
   };
@@ -122,6 +121,9 @@ export default function InventoryPage() {
   const filteredSites = siteModal
     ? pastSiteNames.filter((s) => isSimilarSite(s, siteModal.query))
     : [];
+
+  const actionItem = siteAction ? items.find((i) => i.id === siteAction.itemId) : null;
+  const actionQty = siteAction ? (quantities[siteAction.itemId] || 0) : 0;
 
   return (
     <div className="p-6">
@@ -151,7 +153,7 @@ export default function InventoryPage() {
                   {filteredSites.map((s) => (
                     <li key={s}>
                       <button
-                        onClick={() => selectSite(siteModal.itemId, s)}
+                        onClick={() => openSiteAction(siteModal.itemId, s)}
                         className="w-full text-left border rounded px-3 py-2 text-sm hover:bg-blue-50 hover:border-blue-300"
                       >
                         {s}
@@ -197,7 +199,7 @@ export default function InventoryPage() {
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => selectSite(siteConfirm.itemId, siteConfirm.query)}
+                onClick={() => openSiteAction(siteConfirm.itemId, siteConfirm.query)}
                 className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-bold"
               >
                 OK
@@ -212,6 +214,48 @@ export default function InventoryPage() {
                 NO
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 入庫・出庫アクションモーダル */}
+      {siteAction && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+            <h2 className="text-base font-bold mb-3">入庫 / 出庫の確認</h2>
+            <div className="bg-gray-50 rounded p-3 mb-4 text-sm space-y-1">
+              <div><span className="text-gray-500 text-xs">商品</span><br />{actionItem?.type}　{actionItem?.maker}　{actionItem?.detail}</div>
+              <div><span className="text-gray-500 text-xs">現場</span><br /><span className="font-semibold text-blue-700">{siteAction.siteName}</span></div>
+              <div><span className="text-gray-500 text-xs">数量</span><br /><span className="font-bold text-lg">{actionQty}</span> {actionItem?.unit}</div>
+            </div>
+            {actionQty <= 0 && (
+              <p className="text-xs text-red-500 mb-3">数量を1以上入力してください</p>
+            )}
+            <div className="flex gap-2 mb-2">
+              <button
+                onClick={() => updateQuantity(siteAction.itemId, 1, siteAction.siteName)}
+                disabled={actionQty <= 0}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                入庫
+              </button>
+              <button
+                onClick={() => updateQuantity(siteAction.itemId, -1, siteAction.siteName)}
+                disabled={actionQty <= 0}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                出庫
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setSiteNames((prev) => ({ ...prev, [siteAction.itemId]: "" }));
+                setSiteAction(null);
+              }}
+              className="w-full bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"
+            >
+              キャンセル
+            </button>
           </div>
         </div>
       )}
@@ -280,7 +324,7 @@ export default function InventoryPage() {
                     <span className="text-xs text-gray-500 w-8">現場</span>
                     <input
                       type="text"
-                      placeholder="現場名（必須）"
+                      placeholder="現場名を入力して確定"
                       value={siteNames[item.id] || ""}
                       onChange={(e) =>
                         setSiteNames((prev) => ({ ...prev, [item.id]: e.target.value }))
@@ -291,24 +335,6 @@ export default function InventoryPage() {
                       }}
                       className="border rounded p-1 text-sm flex-1"
                     />
-                  </div>
-
-                  {/* 入庫・出庫ボタン行 */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => updateQuantity(item.id, 1)}
-                      disabled={!canSubmit(item.id)}
-                      className="flex-1 bg-green-500 hover:bg-green-600 text-white py-1.5 rounded font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      入庫
-                    </button>
-                    <button
-                      onClick={() => updateQuantity(item.id, -1)}
-                      disabled={!canSubmit(item.id)}
-                      className="flex-1 bg-red-500 hover:bg-red-600 text-white py-1.5 rounded font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      出庫
-                    </button>
                   </div>
 
                 </div>
