@@ -98,22 +98,22 @@ export default function InventoryPage() {
       <table className="table-auto w-full border-collapse border text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border px-3 py-2 text-left">種類</th>
-            <th className="border px-3 py-2 text-left">メーカー</th>
-            <th className="border px-3 py-2 text-left">詳細</th>
-            <th className="border px-3 py-2 text-center">単位</th>
-            <th className="border px-3 py-2 text-center">在庫数</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap">種類</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap">メーカー</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap">詳細</th>
+            <th className="border px-3 py-2 text-center whitespace-nowrap">単位</th>
+            <th className="border px-3 py-2 text-center whitespace-nowrap">在庫数</th>
             <th className="border px-3 py-2 text-center w-80">操作</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item) => (
             <tr key={item.id} className="hover:bg-gray-50">
-              <td className="border px-3 py-2">{item.type}</td>
-              <td className="border px-3 py-2">{item.maker}</td>
-              <td className="border px-3 py-2">{item.detail}</td>
-              <td className="border px-3 py-2 text-center">{item.unit}</td>
-              <td className="border px-3 py-2 text-center font-bold">{item.quantity}</td>
+              <td className="border px-3 py-2 whitespace-nowrap">{item.type}</td>
+              <td className="border px-3 py-2 whitespace-nowrap">{item.maker}</td>
+              <td className="border px-3 py-2 whitespace-nowrap">{item.detail}</td>
+              <td className="border px-3 py-2 text-center whitespace-nowrap">{item.unit}</td>
+              <td className="border px-3 py-2 text-center font-bold whitespace-nowrap">{item.quantity}</td>
               <td className="border px-3 py-3">
                 <div className="flex flex-col gap-2">
 
