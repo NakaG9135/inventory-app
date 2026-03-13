@@ -95,7 +95,8 @@ export default function InventoryPage() {
       </div>
 
       {/* テーブル */}
-      <table className="table-auto w-full border-collapse border text-sm">
+      <div className="overflow-x-auto">
+      <table className="table-auto border-collapse border text-sm">
         <thead className="bg-gray-100">
           <tr>
             <th className="border px-3 py-2 text-left whitespace-nowrap w-1">種類</th>
@@ -177,6 +178,7 @@ export default function InventoryPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
