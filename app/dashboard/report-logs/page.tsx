@@ -191,7 +191,7 @@ export default function ReportLogsPage() {
                       <div>
                         <span className="text-xs text-gray-400 block">登録日時</span>
                         <span className="text-xs text-gray-500">
-                          {new Date(report.created_at).toLocaleString("ja-JP")}
+                          {new Date(report.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
                         </span>
                       </div>
                     </div>

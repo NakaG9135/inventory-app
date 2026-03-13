@@ -161,7 +161,7 @@ function LogsPage() {
               </td>
               <td className="border px-4 py-2 whitespace-nowrap w-1">{log.site_name || "-"}</td>
               <td className="border px-4 py-2 whitespace-nowrap w-1">
-                {new Date(log.created_at).toLocaleString("ja-JP")}
+                {new Date(log.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
               </td>
             </tr>
           ))}
