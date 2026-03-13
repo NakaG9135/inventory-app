@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import withAdminRoute from "@/components/withAdminRoute";
+import { isFuzzyMatch as isSimilar } from "@/lib/fuzzyMatch";
 
 interface Item {
   id: string;
@@ -11,42 +12,6 @@ interface Item {
   detail: string;
   unit: string;
   quantity: number;
-}
-
-// ひらがな→カタカナに統一して正規化
-function normalize(str: string): string {
-  return str.trim().toLowerCase().replace(/[\u3041-\u3096]/g, (ch) =>
-    String.fromCharCode(ch.charCodeAt(0) + 0x60)
-  );
-}
-
-function isSimilar(a: string, b: string): boolean {
-  const x = normalize(a);
-  const y = normalize(b);
-  if (!x || !y) return false;
-
-  // 部分一致
-  if (x.includes(y) || y.includes(x)) return true;
-
-  // ユニグラム類似度（1文字単位の重なり）
-  const cx = new Set(x.split(""));
-  const cy = new Set(y.split(""));
-  let commonChars = 0;
-  cx.forEach((c) => { if (cy.has(c)) commonChars++; });
-  if ((2 * commonChars) / (cx.size + cy.size) >= 0.4) return true;
-
-  // バイグラム類似度（Dice係数）
-  const getBigrams = (str: string): Set<string> => {
-    const s = new Set<string>();
-    for (let i = 0; i < str.length - 1; i++) s.add(str.slice(i, i + 2));
-    return s;
-  };
-  const bx = getBigrams(x);
-  const by = getBigrams(y);
-  if (bx.size === 0 || by.size === 0) return false;
-  let common = 0;
-  bx.forEach((bg) => { if (by.has(bg)) common++; });
-  return (2 * common) / (bx.size + by.size) >= 0.35;
 }
 
 function MasterPage() {
