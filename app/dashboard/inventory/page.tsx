@@ -179,7 +179,10 @@ export default function InventoryPage() {
                 新規登録
               </button>
               <button
-                onClick={() => setSiteModal(null)}
+                onClick={() => {
+                  setSiteNames((prev) => ({ ...prev, [siteModal.itemId]: "" }));
+                  setSiteModal(null);
+                }}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
               >
                 キャンセル
