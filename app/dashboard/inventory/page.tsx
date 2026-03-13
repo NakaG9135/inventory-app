@@ -7,7 +7,22 @@ function isSimilarSite(a: string, b: string): boolean {
   const x = a.trim().toLowerCase();
   const y = b.trim().toLowerCase();
   if (!x || !y) return false;
-  return x.includes(y) || y.includes(x);
+
+  // 部分一致
+  if (x.includes(y) || y.includes(x)) return true;
+
+  // バイグラム類似度（Dice係数）
+  const getBigrams = (str: string): Set<string> => {
+    const s = new Set<string>();
+    for (let i = 0; i < str.length - 1; i++) s.add(str.slice(i, i + 2));
+    return s;
+  };
+  const bx = getBigrams(x);
+  const by = getBigrams(y);
+  if (bx.size === 0 || by.size === 0) return false;
+  let common = 0;
+  bx.forEach((bg) => { if (by.has(bg)) common++; });
+  return (2 * common) / (bx.size + by.size) >= 0.35;
 }
 
 export default function InventoryPage() {
