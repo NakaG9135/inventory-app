@@ -2,11 +2,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 export default function Sidebar() {
   const [role, setRole] = useState<string>("user");
+  const [open, setOpen] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -28,46 +30,68 @@ export default function Sidebar() {
     fetchRole();
   }, []);
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  const links = [
+    { href: "/dashboard/inventory", label: "在庫一覧", adminOnly: false },
+    { href: "/dashboard/profile", label: "登録情報変更", adminOnly: false },
+    { href: "/dashboard/logs", label: "入出庫ログ", adminOnly: true },
+    { href: "/dashboard/master", label: "商品マスタ編集", adminOnly: true },
+    { href: "/dashboard/settings", label: "システム設定", adminOnly: true },
+  ];
+
+  const visibleLinks = links.filter((l) => !l.adminOnly || role === "admin");
+
   return (
-    <aside className="w-64 bg-gray-800 text-white p-4">
-      <h2 className="text-lg font-bold mb-4">メニュー</h2>
-      <ul className="space-y-2">
-        <li>
-          <Link href="/dashboard/inventory" className="block hover:bg-gray-700 p-2 rounded">
-            在庫一覧
-          </Link>
-        </li>
-        <li>
-          <Link href="/dashboard/profile" className="block hover:bg-gray-700 p-2 rounded">
-            登録情報変更
-          </Link>
-        </li>
-        {role === "admin" && (
-          <>
-            <li>
-              <Link href="/dashboard/logs" className="block hover:bg-gray-700 p-2 rounded">
-                入出庫ログ
-              </Link>
-            </li>
-            <li>
-              <Link href="/dashboard/master" className="block hover:bg-gray-700 p-2 rounded">
-                商品マスタ編集
-              </Link>
-            </li>
-            <li>
-              <Link href="/dashboard/settings" className="block hover:bg-gray-700 p-2 rounded">
-                システム設定
-              </Link>
-            </li>
-          </>
-        )}
-      </ul>
+    <>
+      {/* モバイル用ハンバーガーボタン */}
       <button
-        onClick={handleLogout}
-        className="mt-6 w-full bg-red-600 hover:bg-red-700 text-white p-2 rounded"
+        className="md:hidden fixed top-3 left-3 z-50 bg-gray-800 text-white p-2 rounded"
+        onClick={() => setOpen((v) => !v)}
       >
-        ログアウト
+        {open ? "✕" : "☰"}
       </button>
-    </aside>
+
+      {/* オーバーレイ */}
+      {open && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-30"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* サイドバー本体 */}
+      <aside
+        className={`
+          fixed md:static top-0 left-0 h-full z-40
+          w-56 bg-gray-800 text-white p-4 flex flex-col
+          transform transition-transform duration-200
+          ${open ? "translate-x-0" : "-translate-x-full"}
+          md:translate-x-0
+        `}
+      >
+        <h2 className="text-lg font-bold mb-4 mt-10 md:mt-0">メニュー</h2>
+        <ul className="space-y-2 flex-1">
+          {visibleLinks.map((l) => (
+            <li key={l.href}>
+              <Link
+                href={l.href}
+                className={`block hover:bg-gray-700 p-2 rounded ${pathname === l.href ? "bg-gray-600" : ""}`}
+              >
+                {l.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={handleLogout}
+          className="mt-6 w-full bg-red-600 hover:bg-red-700 text-white p-2 rounded"
+        >
+          ログアウト
+        </button>
+      </aside>
+    </>
   );
 }
