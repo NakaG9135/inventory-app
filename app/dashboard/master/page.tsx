@@ -253,7 +253,7 @@ function MasterPage() {
             <th className="border px-3 py-2 text-left whitespace-nowrap w-1">詳細</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">数量</th>
-            <th className="border px-3 py-2 text-center w-1">操作</th>
+            <th className="border px-3 py-2 text-center w-36">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -281,7 +281,7 @@ function MasterPage() {
                     onChange={(e) => setEditForm({ ...editForm, quantity: parseInt(e.target.value) || 0 })}
                     className="border rounded p-1 w-full text-sm text-center" />
                 </td>
-                <td className="border px-2 py-1 text-center space-x-1 w-1">
+                <td className="border px-2 py-1 text-center space-x-1 w-36">
                   <button onClick={() => saveEdit(item.id)}
                     className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">保存</button>
                   <button onClick={() => setEditingId(null)}
@@ -295,7 +295,7 @@ function MasterPage() {
                 <td className="border px-3 py-2 whitespace-nowrap w-1">{item.detail}</td>
                 <td className="border px-3 py-2 text-center whitespace-nowrap w-1">{item.unit}</td>
                 <td className="border px-3 py-2 text-center font-bold whitespace-nowrap w-1">{item.quantity}</td>
-                <td className="border px-3 py-2 text-center space-x-1 w-1">
+                <td className="border px-3 py-2 text-center space-x-1 w-36">
                   <button onClick={() => startEdit(item)}
                     className="bg-yellow-400 hover:bg-yellow-500 text-white px-2 py-1 rounded text-xs">編集</button>
                   <button onClick={() => deleteItem(item.id)}
