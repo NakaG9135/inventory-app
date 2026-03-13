@@ -31,7 +31,8 @@ function ReportForm() {
 
   const [siteName, setSiteName] = useState("");
   const [workDate, setWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [workTime, setWorkTime] = useState("");
+  const [workTimeStart, setWorkTimeStart] = useState("");
+  const [workTimeEnd, setWorkTimeEnd] = useState("");
   const [vehicles, setVehicles] = useState<string[]>([""]);
   const [workers, setWorkers] = useState<string[]>([""]);
   const [materials, setMaterials] = useState<MaterialRow[]>([
@@ -76,7 +77,9 @@ function ReportForm() {
       if (!data) return;
       setSiteName(data.site_name || "");
       setWorkDate(data.work_date || new Date().toISOString().slice(0, 10));
-      setWorkTime(data.work_time || "");
+      const parts = (data.work_time || "").split("～");
+      setWorkTimeStart(parts[0] || "");
+      setWorkTimeEnd(parts[1] || "");
       setVehicles(data.vehicles?.length ? data.vehicles : [""]);
       setWorkers(data.workers?.length ? data.workers : [""]);
       const mats: MaterialRow[] = (data.daily_report_materials || []).map((m: any, i: number) => ({
@@ -141,7 +144,7 @@ function ReportForm() {
       const { error } = await supabase.from("daily_reports").update({
         site_name: siteName.trim(),
         work_date: workDate,
-        work_time: workTime || null,
+        work_time: workTimeStart || workTimeEnd ? `${workTimeStart}～${workTimeEnd}` : null,
         vehicles: vehicles.filter((v) => v.trim()),
         workers: workers.filter((w) => w.trim()),
       }).eq("id", draftId);
@@ -153,7 +156,7 @@ function ReportForm() {
       const { data: report, error } = await supabase.from("daily_reports").insert({
         site_name: siteName.trim(),
         work_date: workDate,
-        work_time: workTime || null,
+        work_time: workTimeStart || workTimeEnd ? `${workTimeStart}～${workTimeEnd}` : null,
         vehicles: vehicles.filter((v) => v.trim()),
         workers: workers.filter((w) => w.trim()),
         user_id: userData.user.id,
@@ -197,7 +200,7 @@ function ReportForm() {
       const { error } = await supabase.from("daily_reports").update({
         site_name: siteName.trim(),
         work_date: workDate,
-        work_time: workTime || null,
+        work_time: workTimeStart || workTimeEnd ? `${workTimeStart}～${workTimeEnd}` : null,
         vehicles: vehicles.filter((v) => v.trim()),
         workers: workers.filter((w) => w.trim()),
         status: "confirmed",
@@ -210,7 +213,7 @@ function ReportForm() {
       const { data: report, error } = await supabase.from("daily_reports").insert({
         site_name: siteName.trim(),
         work_date: workDate,
-        work_time: workTime || null,
+        work_time: workTimeStart || workTimeEnd ? `${workTimeStart}～${workTimeEnd}` : null,
         vehicles: vehicles.filter((v) => v.trim()),
         workers: workers.filter((w) => w.trim()),
         user_id: userData.user.id,
@@ -258,7 +261,8 @@ function ReportForm() {
   const reset = () => {
     setSiteName("");
     setWorkDate(new Date().toISOString().slice(0, 10));
-    setWorkTime("");
+    setWorkTimeStart("");
+    setWorkTimeEnd("");
     setVehicles([""]);
     setWorkers([""]);
     setMaterials([{ key: 0, item: null, quantity: 0, search: "", showDropdown: false }]);
@@ -324,8 +328,13 @@ function ReportForm() {
           </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">時間</label>
-            <input type="text" value={workTime} onChange={(e) => setWorkTime(e.target.value)}
-              placeholder="例：9:00〜17:00" className="border rounded p-2 w-full text-sm" />
+            <div className="flex items-center gap-1">
+              <input type="time" value={workTimeStart} onChange={(e) => setWorkTimeStart(e.target.value)}
+                className="border rounded p-2 text-sm flex-1" />
+              <span className="text-gray-500 text-sm">～</span>
+              <input type="time" value={workTimeEnd} onChange={(e) => setWorkTimeEnd(e.target.value)}
+                className="border rounded p-2 text-sm flex-1" />
+            </div>
           </div>
         </div>
       </section>
