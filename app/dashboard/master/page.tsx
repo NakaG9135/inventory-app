@@ -13,12 +13,22 @@ interface Item {
   quantity: number;
 }
 
-// 文字列の類似判定（一方が他方を含む、または共通部分が50%以上）
 function isSimilar(a: string, b: string): boolean {
   const x = a.trim().toLowerCase();
   const y = b.trim().toLowerCase();
   if (!x || !y) return false;
-  return x.includes(y) || y.includes(x);
+  if (x.includes(y) || y.includes(x)) return true;
+  const getBigrams = (str: string): Set<string> => {
+    const s = new Set<string>();
+    for (let i = 0; i < str.length - 1; i++) s.add(str.slice(i, i + 2));
+    return s;
+  };
+  const bx = getBigrams(x);
+  const by = getBigrams(y);
+  if (bx.size === 0 || by.size === 0) return false;
+  let common = 0;
+  bx.forEach((bg) => { if (by.has(bg)) common++; });
+  return (2 * common) / (bx.size + by.size) >= 0.35;
 }
 
 function MasterPage() {
@@ -31,6 +41,14 @@ function MasterPage() {
   // 類似品確認モーダル用
   const [similarItems, setSimilarItems] = useState<Item[]>([]);
   const [pendingForm, setPendingForm] = useState<typeof form | null>(null);
+
+  // 種類サジェストモーダル
+  const [typeModal, setTypeModal] = useState<{ query: string } | null>(null);
+  const [typeConfirm, setTypeConfirm] = useState<{ query: string } | null>(null);
+
+  // 詳細サジェストモーダル
+  const [detailModal, setDetailModal] = useState<{ query: string } | null>(null);
+  const [detailConfirm, setDetailConfirm] = useState<{ query: string } | null>(null);
 
   const fetchItems = async () => {
     const { data, error } = await supabase.from("inventory").select("*").order("created_at", { ascending: false });
@@ -61,7 +79,7 @@ function MasterPage() {
       return;
     }
 
-    // 類似品チェック（詳細・種類・メーカーのいずれかが類似）
+    // 類似品チェック
     const similar = items.filter(
       (item) =>
         isSimilar(item.detail, form.detail) ||
@@ -69,7 +87,6 @@ function MasterPage() {
     );
 
     if (similar.length > 0) {
-      // モーダルで確認
       setPendingForm(form);
       setSimilarItems(similar);
     } else {
@@ -147,23 +164,238 @@ function MasterPage() {
     }
   };
 
+  // 種類サジェスト候補（ユニーク）
+  const typeMatches = typeModal
+    ? [...new Set(items.map((i) => i.type).filter(Boolean))].filter((t) => isSimilar(t, typeModal.query))
+    : [];
+
+  // 詳細サジェスト候補（アイテム全体）
+  const detailMatches = detailModal
+    ? items.filter((i) => isSimilar(i.detail, detailModal.query))
+    : [];
+
   return (
     <div className="p-6">
       <h1 className="text-xl font-bold mb-4">商品マスタ編集（管理者専用）</h1>
+
+      {/* 種類サジェストモーダル */}
+      {typeModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+            <h2 className="text-base font-bold mb-1">種類の確認</h2>
+            <p className="text-xs text-gray-500 mb-2">編集すると随時再検索されます</p>
+            <input
+              type="text"
+              value={typeModal.query}
+              autoFocus
+              onChange={(e) => {
+                setTypeModal({ query: e.target.value });
+                setForm((prev) => ({ ...prev, type: e.target.value }));
+              }}
+              className="border rounded p-2 w-full text-sm mb-3"
+            />
+            {typeMatches.length > 0 ? (
+              <div className="mb-3">
+                <p className="text-xs text-gray-500 mb-1">これですか？</p>
+                <ul className="space-y-1 max-h-40 overflow-y-auto">
+                  {typeMatches.map((t) => (
+                    <li key={t}>
+                      <button
+                        onClick={() => {
+                          setForm((prev) => ({ ...prev, type: t }));
+                          setTypeModal(null);
+                        }}
+                        className="w-full text-left border rounded px-3 py-2 text-sm hover:bg-blue-50 hover:border-blue-300"
+                      >
+                        {t}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 mb-3">類似する種類はありません</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setTypeConfirm({ query: typeModal.query });
+                  setTypeModal(null);
+                }}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm font-bold"
+              >
+                新規登録
+              </button>
+              <button
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, type: "" }));
+                  setTypeModal(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 種類新規確認モーダル */}
+      {typeConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+            <h2 className="text-base font-bold mb-3">新規種類の確認</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              「<span className="font-semibold text-blue-700">{typeConfirm.query}</span>」を新しい種類として登録しますか？
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, type: typeConfirm.query }));
+                  setTypeConfirm(null);
+                }}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-bold"
+              >
+                OK
+              </button>
+              <button
+                onClick={() => {
+                  setTypeModal({ query: typeConfirm.query });
+                  setTypeConfirm(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
+              >
+                NO
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 詳細サジェストモーダル */}
+      {detailModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h2 className="text-base font-bold mb-1">詳細の確認</h2>
+            <p className="text-xs text-gray-500 mb-2">選択すると種類・メーカー・単位も自動入力されます</p>
+            <input
+              type="text"
+              value={detailModal.query}
+              autoFocus
+              onChange={(e) => {
+                setDetailModal({ query: e.target.value });
+                setForm((prev) => ({ ...prev, detail: e.target.value }));
+              }}
+              className="border rounded p-2 w-full text-sm mb-3"
+            />
+            {detailMatches.length > 0 ? (
+              <div className="mb-3">
+                <p className="text-xs text-gray-500 mb-1">これですか？</p>
+                <ul className="space-y-1 max-h-48 overflow-y-auto">
+                  {detailMatches.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => {
+                          setForm((prev) => ({
+                            ...prev,
+                            type: item.type,
+                            maker: item.maker,
+                            detail: item.detail,
+                            unit: item.unit,
+                          }));
+                          setDetailModal(null);
+                        }}
+                        className="w-full text-left border rounded px-3 py-2 text-sm hover:bg-blue-50 hover:border-blue-300"
+                      >
+                        <span className="font-medium">{item.detail}</span>
+                        <span className="text-xs text-gray-400 ml-2">（{item.type} / {item.maker}）</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 mb-3">類似する詳細はありません</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setDetailConfirm({ query: detailModal.query });
+                  setDetailModal(null);
+                }}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm font-bold"
+              >
+                新規登録
+              </button>
+              <button
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, detail: "" }));
+                  setDetailModal(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 詳細新規確認モーダル */}
+      {detailConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+            <h2 className="text-base font-bold mb-3">新規詳細の確認</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              「<span className="font-semibold text-blue-700">{detailConfirm.query}</span>」を新しい詳細として登録しますか？
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, detail: detailConfirm.query }));
+                  setDetailConfirm(null);
+                }}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-bold"
+              >
+                OK
+              </button>
+              <button
+                onClick={() => {
+                  setDetailModal({ query: detailConfirm.query });
+                  setDetailConfirm(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded text-sm"
+              >
+                NO
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 新規登録フォーム */}
       <div className="bg-gray-50 border rounded p-4 mb-6">
         <h2 className="text-sm font-semibold text-gray-600 mb-2">新規登録</h2>
         <div className="grid grid-cols-5 gap-2 mb-2">
-          <input type="text" placeholder="種類" value={form.type}
+          <input
+            type="text"
+            placeholder="種類"
+            value={form.type}
             onChange={(e) => setForm({ ...form, type: e.target.value })}
-            className="border rounded p-2 text-sm" />
+            onBlur={() => { if (form.type.trim()) setTypeModal({ query: form.type }); }}
+            className="border rounded p-2 text-sm"
+          />
           <input type="text" placeholder="メーカー" value={form.maker}
             onChange={(e) => setForm({ ...form, maker: e.target.value })}
             className="border rounded p-2 text-sm" />
-          <input type="text" placeholder="詳細（必須）" value={form.detail}
+          <input
+            type="text"
+            placeholder="詳細（必須）"
+            value={form.detail}
             onChange={(e) => setForm({ ...form, detail: e.target.value })}
-            className="border rounded p-2 text-sm" />
+            onBlur={() => { if (form.detail.trim()) setDetailModal({ query: form.detail }); }}
+            className="border rounded p-2 text-sm"
+          />
           <input type="text" placeholder="単位（必須）" value={form.unit}
             onChange={(e) => setForm({ ...form, unit: e.target.value })}
             className="border rounded p-2 text-sm" />
@@ -186,13 +418,11 @@ function MasterPage() {
               登録しようとした商品と似ているものがあります。既存の商品に数量を加算しますか？それとも新規登録しますか？
             </p>
 
-            {/* 登録しようとした内容 */}
             <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-sm">
               <span className="font-semibold text-blue-700">登録内容：</span>
               　{pendingForm.type}　{pendingForm.maker}　{pendingForm.detail}　{pendingForm.unit}　{pendingForm.quantity}
             </div>
 
-            {/* 類似品リスト */}
             <table className="w-full border text-sm mb-4">
               <thead className="bg-gray-100">
                 <tr>
