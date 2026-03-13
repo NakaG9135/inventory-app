@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 interface ReportMaterial {
@@ -23,10 +24,12 @@ interface Report {
   workers: string[];
   created_at: string;
   user_id: string;
+  status: string;
   daily_report_materials: ReportMaterial[];
 }
 
 export default function ReportLogsPage() {
+  const router = useRouter();
   const [reports, setReports] = useState<Report[]>([]);
   const [userNames, setUserNames] = useState<{ [id: string]: string }>({});
   const [filterSite, setFilterSite] = useState("");
@@ -46,6 +49,7 @@ export default function ReportLogsPage() {
         workers,
         created_at,
         user_id,
+        status,
         daily_report_materials(
           id,
           quantity,
@@ -141,28 +145,41 @@ export default function ReportLogsPage() {
           {reports.map((report) => {
             const isOpen = expandedId === report.id;
             return (
-              <div key={report.id} className="border rounded-lg bg-white overflow-hidden">
+              <div key={report.id} className={`border rounded-lg bg-white overflow-hidden ${report.status === "draft" ? "border-yellow-300" : ""}`}>
                 {/* ヘッダー行（クリックで展開） */}
-                <button
-                  onClick={() => setExpandedId(isOpen ? null : report.id)}
-                  className="w-full text-left px-4 py-3 flex items-center gap-4 hover:bg-gray-50"
-                >
-                  <span className="text-sm font-semibold text-blue-700 whitespace-nowrap">
-                    {report.work_date}
-                  </span>
-                  <span className="text-sm font-bold flex-1 truncate">
-                    {report.site_name}
-                  </span>
-                  {report.work_time && (
-                    <span className="text-xs text-gray-400 whitespace-nowrap">{report.work_time}</span>
+                <div className="px-4 py-3 flex items-center gap-3">
+                  {report.status === "draft" && (
+                    <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap">下書き</span>
                   )}
-                  <span className="text-xs text-gray-400 whitespace-nowrap">
-                    {report.workers?.filter(Boolean).join("・") || "—"}
-                  </span>
-                  <span className="text-gray-400 text-xs ml-auto whitespace-nowrap">
-                    {isOpen ? "▲" : "▼"}
-                  </span>
-                </button>
+                  <button
+                    onClick={() => setExpandedId(isOpen ? null : report.id)}
+                    className="flex-1 text-left flex items-center gap-3 hover:opacity-70 min-w-0"
+                  >
+                    <span className="text-sm font-semibold text-blue-700 whitespace-nowrap">
+                      {report.work_date}
+                    </span>
+                    <span className="text-sm font-bold flex-1 truncate">
+                      {report.site_name}
+                    </span>
+                    {report.work_time && (
+                      <span className="text-xs text-gray-400 whitespace-nowrap">{report.work_time}</span>
+                    )}
+                    <span className="text-xs text-gray-400 whitespace-nowrap hidden sm:inline">
+                      {report.workers?.filter(Boolean).join("・") || "—"}
+                    </span>
+                    <span className="text-gray-400 text-xs whitespace-nowrap">
+                      {isOpen ? "▲" : "▼"}
+                    </span>
+                  </button>
+                  {report.status === "draft" && (
+                    <button
+                      onClick={() => router.push(`/dashboard/report?draft=${report.id}`)}
+                      className="bg-yellow-400 hover:bg-yellow-500 text-white text-xs px-3 py-1.5 rounded font-bold whitespace-nowrap"
+                    >
+                      続きを入力
+                    </button>
+                  )}
+                </div>
 
                 {/* 展開内容 */}
                 {isOpen && (
