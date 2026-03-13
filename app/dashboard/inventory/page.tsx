@@ -98,12 +98,12 @@ export default function InventoryPage() {
       <table className="table-auto w-full border-collapse border text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border px-3 py-2 text-left whitespace-nowrap">種類</th>
-            <th className="border px-3 py-2 text-left whitespace-nowrap">メーカー</th>
-            <th className="border px-3 py-2 text-left whitespace-nowrap">詳細</th>
-            <th className="border px-3 py-2 text-center whitespace-nowrap">単位</th>
-            <th className="border px-3 py-2 text-center whitespace-nowrap">在庫数</th>
-            <th className="border px-3 py-2 text-center w-80">操作</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">種類</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">メーカー</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">詳細</th>
+            <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
+            <th className="border px-3 py-2 text-center whitespace-nowrap w-1">在庫数</th>
+            <th className="border px-3 py-2 text-center">操作</th>
           </tr>
         </thead>
         <tbody>
