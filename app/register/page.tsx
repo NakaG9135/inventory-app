@@ -5,9 +5,10 @@ import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
 export default function RegisterPage() {
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [username, setUsername] = useState("");
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState(false);
   const router = useRouter();
@@ -15,7 +16,7 @@ export default function RegisterPage() {
   const handleRegister = async () => {
     setError("");
 
-    if (!email || !password || !username) {
+    if (!lastName || !firstName || !email || !password) {
       setError("全ての項目を入力してください");
       return;
     }
@@ -28,10 +29,12 @@ export default function RegisterPage() {
       return;
     }
 
+    const fullName = `${lastName} ${firstName}`;
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name: username } },
+      options: { data: { name: fullName } },
     });
 
     if (error) {
@@ -50,7 +53,7 @@ export default function RegisterPage() {
       await supabase.from("users_profile").insert({
         id: data.user.id,
         email,
-        name: username,
+        name: fullName,
         failed_attempts: 0,
         locked: false,
       });
@@ -63,23 +66,33 @@ export default function RegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-100">
       <div className="bg-white p-6 rounded shadow w-96">
         <h1 className="text-xl mb-4">新規登録</h1>
-        <input
-          type="text"
-          placeholder="ユーザー名"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className="border p-2 w-full mb-2"
-        />
+
+        <div className="flex gap-2 mb-2">
+          <input
+            type="text"
+            placeholder="姓（必須）"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            className="border p-2 w-1/2"
+          />
+          <input
+            type="text"
+            placeholder="名（必須）"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            className="border p-2 w-1/2"
+          />
+        </div>
         <input
           type="email"
-          placeholder="メールアドレス"
+          placeholder="メールアドレス（必須）"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="border p-2 w-full mb-2"
         />
         <input
           type="password"
-          placeholder="パスワード"
+          placeholder="パスワード（必須）"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="border p-2 w-full mb-1"
