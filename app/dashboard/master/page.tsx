@@ -147,6 +147,24 @@ function MasterPage() {
     }
   };
 
+  // ソート
+  const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const toggleSort = (key: "type" | "maker" | "detail") => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+  const sortIcon = (key: "type" | "maker" | "detail") =>
+    sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : " ⇅";
+  const sortedItems = sortKey
+    ? [...items].sort((a, b) => {
+        const av = (a[sortKey] || "").toLowerCase();
+        const bv = (b[sortKey] || "").toLowerCase();
+        return sortDir === "asc" ? av.localeCompare(bv, "ja") : bv.localeCompare(av, "ja");
+      })
+    : items;
+
   // 種類サジェスト候補（ユニーク）
   const typeMatches = typeModal
     ? [...new Set(items.map((i) => i.type).filter(Boolean))].filter((t) => isSimilar(t, typeModal.query))
@@ -461,16 +479,16 @@ function MasterPage() {
       <table className="table-auto border-collapse border text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">種類</th>
-            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">メーカー</th>
-            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">詳細</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("type")}>種類{sortIcon("type")}</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("maker")}>メーカー{sortIcon("maker")}</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("detail")}>詳細{sortIcon("detail")}</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">数量</th>
             <th className="border px-3 py-2 text-center w-36">操作</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) =>
+          {sortedItems.map((item) =>
             editingId === item.id ? (
               <tr key={item.id} className="bg-yellow-50">
                 <td className="border px-2 py-1 whitespace-nowrap w-1">

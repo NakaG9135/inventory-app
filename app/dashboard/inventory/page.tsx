@@ -14,6 +14,8 @@ export default function InventoryPage() {
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
   const [siteModal, setSiteModal] = useState<{ itemId: string; query: string } | null>(null);
   const [siteConfirm, setSiteConfirm] = useState<{ itemId: string; query: string } | null>(null);
+  const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const fetchItems = async () => {
     let query = supabase.from("inventory").select("*").order("created_at", { ascending: true });
@@ -96,6 +98,20 @@ export default function InventoryPage() {
 
   const canSubmit = (id: string) =>
     (quantities[id] || 0) > 0 && !!siteNames[id]?.trim();
+
+  const toggleSort = (key: "type" | "maker" | "detail") => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+  const sortIcon = (key: "type" | "maker" | "detail") =>
+    sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : " ⇅";
+  const sortedItems = sortKey
+    ? [...items].sort((a, b) => {
+        const av = (a[sortKey] || "").toLowerCase();
+        const bv = (b[sortKey] || "").toLowerCase();
+        return sortDir === "asc" ? av.localeCompare(bv, "ja") : bv.localeCompare(av, "ja");
+      })
+    : items;
 
   const selectSite = (itemId: string, name: string) => {
     setSiteNames((prev) => ({ ...prev, [itemId]: name }));
@@ -218,16 +234,16 @@ export default function InventoryPage() {
       <table className="table-auto border-collapse border text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">種類</th>
-            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">メーカー</th>
-            <th className="border px-3 py-2 text-left whitespace-nowrap w-1">詳細</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("type")}>種類{sortIcon("type")}</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("maker")}>メーカー{sortIcon("maker")}</th>
+            <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("detail")}>詳細{sortIcon("detail")}</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">在庫数</th>
             <th className="border px-3 py-2 text-center w-1">操作</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
+          {sortedItems.map((item) => (
             <tr key={item.id} className="hover:bg-gray-50">
               <td className="border px-3 py-2 whitespace-nowrap">{item.type}</td>
               <td className="border px-3 py-2 whitespace-nowrap">{item.maker}</td>
