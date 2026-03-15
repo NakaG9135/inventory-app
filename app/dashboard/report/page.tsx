@@ -396,7 +396,7 @@ function ReportForm() {
           {vehicles.map((v, i) => (
             <div key={i} className="flex gap-2 items-center">
               <input type="text" value={v} onChange={(e) => updateVehicle(i, e.target.value)}
-                placeholder={`車両 ${i + 1}`} className="border rounded p-2 flex-1 text-sm" />
+                placeholder={`車両 ${i + 1}`} className="border rounded p-2 flex-1" />
               {vehicles.length > 1 && (
                 <button onClick={() => removeVehicle(i)} className="text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
               )}
@@ -437,7 +437,7 @@ function ReportForm() {
             onChange={(e) => setCustomWorker(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addCustomWorker()}
             placeholder="名簿にない場合は直接入力"
-            className="border rounded p-2 flex-1 text-sm" />
+            className="border rounded p-2 flex-1" />
           <button onClick={addCustomWorker} disabled={!customWorker.trim()}
             className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded disabled:opacity-40">
             追加
@@ -489,7 +489,7 @@ function ReportForm() {
                         onFocus={() => updateMatInGroup(group.groupKey, row.key, { showDropdown: true })}
                         onBlur={() => setTimeout(() => updateMatInGroup(group.groupKey, row.key, { showDropdown: false }), 150)}
                         placeholder="種類・詳細で検索..."
-                        className="border rounded p-2 w-full text-sm"
+                        className="border rounded p-2 w-full"
                       />
                       {row.showDropdown && filteredItems(row.search).length > 0 && (
                         <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
@@ -521,7 +521,7 @@ function ReportForm() {
                           <span className="text-xs text-gray-400">{row.item.unit}</span>
                           <input type="number" min="1" value={row.quantity || ""}
                             onChange={(e) => updateMatInGroup(group.groupKey, row.key, { quantity: Math.max(0, Number(e.target.value)) })}
-                            placeholder="数量" className="border rounded p-1 w-20 text-center text-sm" />
+                            placeholder="数量" className="border rounded p-2 w-24 text-center" />
                         </div>
                       </div>
                     )}
