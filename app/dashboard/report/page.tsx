@@ -432,14 +432,14 @@ function ReportForm() {
             ))}
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex gap-2 min-w-0">
           <input type="text" value={customWorker}
             onChange={(e) => setCustomWorker(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addCustomWorker()}
             placeholder="名簿にない場合は直接入力"
-            className="border rounded p-2 flex-1" />
+            className="border rounded p-2 flex-1 min-w-0" />
           <button onClick={addCustomWorker} disabled={!customWorker.trim()}
-            className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded disabled:opacity-40">
+            className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded disabled:opacity-40 shrink-0">
             追加
           </button>
         </div>
