@@ -358,12 +358,12 @@ function ReportForm() {
       {/* 基本情報 */}
       <section className="bg-white border rounded-lg p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">基本情報</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="md:col-span-2">
             <label className="text-xs text-gray-500 block mb-1">現場名 *</label>
             <input type="text" value={siteName} onChange={(e) => setSiteName(e.target.value)}
               list="site-datalist" placeholder="現場名を入力"
-              className="border rounded p-2 w-full text-sm" />
+              className="border rounded p-2 w-full" />
             <datalist id="site-datalist">
               {pastSiteNames.map((s) => <option key={s} value={s} />)}
             </datalist>
@@ -371,16 +371,16 @@ function ReportForm() {
           <div>
             <label className="text-xs text-gray-500 block mb-1">月日 *</label>
             <input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)}
-              className="border rounded p-2 w-full text-sm" />
+              className="border rounded p-2 w-full" />
           </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">時間</label>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <input type="time" value={workTimeStart} onChange={(e) => setWorkTimeStart(e.target.value)}
-                className="border rounded p-2 text-sm flex-1" />
-              <span className="text-gray-500 text-sm">～</span>
+                className="border rounded p-2 flex-1 min-w-0" />
+              <span className="text-gray-500 shrink-0">～</span>
               <input type="time" value={workTimeEnd} onChange={(e) => setWorkTimeEnd(e.target.value)}
-                className="border rounded p-2 text-sm flex-1" />
+                className="border rounded p-2 flex-1 min-w-0" />
             </div>
           </div>
         </div>
@@ -468,7 +468,7 @@ function ReportForm() {
                   value={group.label}
                   onChange={(e) => updateGroupLabel(group.groupKey, e.target.value)}
                   placeholder="工区・場所名（任意）"
-                  className="border rounded p-1.5 flex-1 text-sm bg-white"
+                  className="border rounded p-2 flex-1 min-w-0 bg-white"
                 />
                 {groups.length > 1 && (
                   <button onClick={() => removeGroup(group.groupKey)}
