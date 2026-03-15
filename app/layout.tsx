@@ -13,7 +13,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body>{children}</body>
+      <body>
+        <div className="bg-yellow-400 text-black text-center text-sm font-bold py-1 sticky top-0 z-[100]">
+          現在βテスト中
+        </div>
+        {children}
+      </body>
     </html>
   );
 }
