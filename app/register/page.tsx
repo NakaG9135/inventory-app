@@ -11,6 +11,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState(false);
+  const [duplicateWarnings, setDuplicateWarnings] = useState<string[]>([]);
   const router = useRouter();
 
   const handleRegister = async () => {
@@ -31,27 +32,32 @@ export default function RegisterPage() {
 
     const fullName = `${lastName} ${firstName}`;
 
-    // 同姓同名チェック（姓・名が完全一致する場合は登録不可）
-    const { data: existingName } = await supabase
-      .from("users_profile")
-      .select("id")
-      .eq("name", fullName)
-      .limit(1);
+    // 重複チェック（同姓同名・メールアドレス）
+    const warnings: string[] = [];
+
+    const [{ data: existingName }, { data: existingEmail }] = await Promise.all([
+      supabase
+        .from("users_profile")
+        .select("id")
+        .eq("name", fullName)
+        .limit(1),
+      supabase
+        .from("users_profile")
+        .select("id")
+        .eq("email", email)
+        .limit(1),
+    ]);
 
     if (existingName && existingName.length > 0) {
-      setError("同じ姓・名のユーザーが既に登録されています。");
-      return;
+      warnings.push("同じ姓・名（同姓同名）のユーザーが既に登録されています。");
     }
 
-    // メールアドレス重複チェック
-    const { data: existingEmail } = await supabase
-      .from("users_profile")
-      .select("id")
-      .eq("email", email)
-      .limit(1);
-
     if (existingEmail && existingEmail.length > 0) {
-      setError("このメールアドレスはすでに登録されています。別のメールアドレスをお使いください。");
+      warnings.push("このメールアドレスは既に登録されています。別のメールアドレスをお使いください。");
+    }
+
+    if (warnings.length > 0) {
+      setDuplicateWarnings(warnings);
       return;
     }
 
@@ -144,6 +150,29 @@ export default function RegisterPage() {
         </button>
         {error && <p className="text-red-500 mt-2">{error}</p>}
       </div>
+
+      {/* 重複警告ポップアップ */}
+      {duplicateWarnings.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-8 w-96 text-center">
+            <div className="text-4xl mb-4">&#x26A0;&#xFE0F;</div>
+            <h2 className="text-lg font-bold mb-4 text-red-600">登録できません</h2>
+            <div className="text-sm text-gray-700 mb-6 space-y-2">
+              {duplicateWarnings.map((w, i) => (
+                <p key={i} className="bg-red-50 border border-red-200 rounded p-2 text-red-700">
+                  {w}
+                </p>
+              ))}
+            </div>
+            <button
+              onClick={() => setDuplicateWarnings([])}
+              className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded w-full"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 登録完了ポップアップ */}
       {registered && (
