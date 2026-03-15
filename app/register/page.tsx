@@ -31,6 +31,30 @@ export default function RegisterPage() {
 
     const fullName = `${lastName} ${firstName}`;
 
+    // 同姓同名チェック（姓・名が完全一致する場合は登録不可）
+    const { data: existingName } = await supabase
+      .from("users_profile")
+      .select("id")
+      .eq("name", fullName)
+      .limit(1);
+
+    if (existingName && existingName.length > 0) {
+      setError("同じ姓・名のユーザーが既に登録されています。");
+      return;
+    }
+
+    // メールアドレス重複チェック
+    const { data: existingEmail } = await supabase
+      .from("users_profile")
+      .select("id")
+      .eq("email", email)
+      .limit(1);
+
+    if (existingEmail && existingEmail.length > 0) {
+      setError("このメールアドレスはすでに登録されています。別のメールアドレスをお使いください。");
+      return;
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
