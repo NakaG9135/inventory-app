@@ -52,7 +52,7 @@ export default function Sidebar() {
     <>
       {/* モバイル用ハンバーガーボタン */}
       <button
-        className="md:hidden fixed top-10 left-3 z-50 bg-gray-800 text-white p-2 rounded"
+        className="md:hidden fixed top-32 left-3 z-50 bg-gray-800 text-white p-2 rounded"
         onClick={() => setOpen((v) => !v)}
       >
         {open ? "✕" : "☰"}
