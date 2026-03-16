@@ -234,7 +234,17 @@ export default function InventoryPage() {
       quantity,
     });
 
+    // Decrease inventory quantity (no inventory_log)
+    const currentItem = items.find((i: any) => i.id === itemId);
+    if (currentItem) {
+      await supabase
+        .from("inventory")
+        .update({ quantity: currentItem.quantity - quantity })
+        .eq("id", itemId);
+    }
+
     alert("材料を確保しました");
+    fetchItems();
   };
 
   const toggleSort = (key: "type" | "maker" | "detail") => {

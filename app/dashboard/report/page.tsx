@@ -286,20 +286,60 @@ function ReportForm() {
       reportId = report.id;
     }
 
+    // 材料確保から現場名で検索
+    const { data: reserveSite } = await supabase
+      .from("material_reserve_sites")
+      .select("id")
+      .eq("site_name", siteName.trim())
+      .single();
+
     // 部材登録 + 在庫出庫処理
     for (const [gi, group] of groups.entries()) {
       for (const row of group.materials.filter((m) => m.item && m.quantity > 0)) {
         const item = row.item!;
-        const { data: latest } = await supabase.from("inventory").select("quantity").eq("id", item.id).single();
-        if (latest) {
-          await supabase.from("inventory").update({ quantity: latest.quantity - row.quantity }).eq("id", item.id);
+        let remainingQty = row.quantity;
+
+        // 材料確保から引く
+        if (reserveSite) {
+          const { data: reserveItem } = await supabase
+            .from("material_reserve_items")
+            .select("id, quantity")
+            .eq("site_id", reserveSite.id)
+            .eq("item_id", item.id)
+            .single();
+
+          if (reserveItem) {
+            const deductFromReserve = Math.min(reserveItem.quantity, remainingQty);
+            const newReserveQty = reserveItem.quantity - deductFromReserve;
+
+            if (newReserveQty <= 0) {
+              await supabase.from("material_reserve_items").delete().eq("id", reserveItem.id);
+            } else {
+              await supabase.from("material_reserve_items")
+                .update({ quantity: newReserveQty, updated_at: new Date().toISOString() })
+                .eq("id", reserveItem.id);
+            }
+
+            remainingQty -= deductFromReserve;
+          }
         }
+
+        // 確保で足りない分のみ在庫から追加で引く（確保分は確保時に既に引かれている）
+        if (remainingQty > 0) {
+          const { data: latest } = await supabase.from("inventory").select("quantity").eq("id", item.id).single();
+          if (latest) {
+            await supabase.from("inventory").update({ quantity: latest.quantity - remainingQty }).eq("id", item.id);
+          }
+        }
+
         await supabase.from("daily_report_materials").insert({
           report_id: reportId,
           item_id: item.id,
           quantity: row.quantity,
           group_index: gi,
         });
+
+        // 出庫ログは全量分残す
         await supabase.from("inventory_logs").insert({
           item_id: item.id,
           change_type: "out",

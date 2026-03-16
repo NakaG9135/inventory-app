@@ -38,6 +38,9 @@ export default function ReservesPage() {
   const [logModal, setLogModal] = useState<{ item: ReserveItem; logs: ReserveLog[] } | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>("");
   const [currentUserRole, setCurrentUserRole] = useState<string>("");
+  const [searchCategory, setSearchCategory] = useState("");
+  const [searchManufacturer, setSearchManufacturer] = useState("");
+  const [searchDetail, setSearchDetail] = useState("");
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -108,9 +111,36 @@ export default function ReservesPage() {
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
 
+  const filterItem = (item: ReserveItem) => {
+    const inv = item.inventory;
+    if (!inv) return false;
+    if (searchCategory && !inv.type.toLowerCase().includes(searchCategory.toLowerCase())) return false;
+    if (searchManufacturer && !inv.maker.toLowerCase().includes(searchManufacturer.toLowerCase())) return false;
+    if (searchDetail && !inv.detail.toLowerCase().includes(searchDetail.toLowerCase())) return false;
+    return true;
+  };
+
+  const hasSearch = searchCategory || searchManufacturer || searchDetail;
+  const filteredSites = hasSearch
+    ? sites.map((s) => ({ ...s, items: s.items.filter(filterItem) })).filter((s) => s.items.length > 0)
+    : sites;
+
   return (
     <div className="p-6 max-w-4xl">
       <h1 className="text-xl font-bold mb-6">材料確保</h1>
+
+      {/* 検索 */}
+      <div className="mb-4 flex gap-2 flex-wrap">
+        <input type="text" placeholder="種類で検索" value={searchCategory}
+          onChange={(e) => setSearchCategory(e.target.value)}
+          className="border rounded p-2 text-sm" />
+        <input type="text" placeholder="メーカーで検索" value={searchManufacturer}
+          onChange={(e) => setSearchManufacturer(e.target.value)}
+          className="border rounded p-2 text-sm" />
+        <input type="text" placeholder="詳細で検索" value={searchDetail}
+          onChange={(e) => setSearchDetail(e.target.value)}
+          className="border rounded p-2 text-sm" />
+      </div>
 
       {/* 操作履歴モーダル */}
       {logModal && (
@@ -159,11 +189,11 @@ export default function ReservesPage() {
         </div>
       )}
 
-      {sites.length === 0 ? (
-        <p className="text-gray-400 text-sm">確保された材料はありません</p>
+      {filteredSites.length === 0 ? (
+        <p className="text-gray-400 text-sm">{hasSearch ? "検索結果がありません" : "確保された材料はありません"}</p>
       ) : (
         <div className="space-y-4">
-          {sites.map((site) => (
+          {filteredSites.map((site) => (
             <div key={site.id} className="bg-white border rounded-lg overflow-hidden">
               {/* 現場ヘッダー */}
               <button
