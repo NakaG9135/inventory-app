@@ -20,13 +20,14 @@ export default function BetaBanner() {
     startTimer();
   };
 
-  const bannerText = "現在βテスト中　好きなようにいじって触って慣れといてください。　数値などぐちゃぐちゃになってOK,ログもめちゃくちゃになってOK。　実装時アカウント以外リセットします。　日々更新して変更されます。　こうしてほしい、こういう機能欲しいという方、悠介まで。";
+  const pcText = "現在βテスト中　好きなようにいじって触って慣れといてください。　数値などぐちゃぐちゃになってOK,ログもめちゃくちゃになってOK。　実装時アカウント以外リセットします。　日々更新して変更されます。　こうしてほしい、こういう機能欲しいという方、悠介まで。";
+  const mobileText = "現在βテスト中　好きなようにいじって触って慣れといてください。　数値などぐちゃぐちゃになってOK,ログもめちゃくちゃになってOK。　実装時アカウント以外リセットします。　日々更新して変更されます。　こうしてほしい、こういう機能欲しいという方、悠介まで。　（タップで閉じる）";
 
   return (
     <>
       {/* PC: 常時表示 */}
       <div className="hidden md:block bg-yellow-400 text-black text-center text-[14px] font-bold py-1 sticky top-0 z-[100]">
-        {bannerText}
+        {pcText}
       </div>
 
       {/* スマホ: トグル */}
@@ -35,7 +36,7 @@ export default function BetaBanner() {
           className="md:hidden bg-yellow-400 text-black text-center text-[14px] font-bold py-1 sticky top-0 z-[100] cursor-pointer"
           onClick={() => setMobileVisible(false)}
         >
-          {bannerText}
+          {mobileText}
         </div>
       ) : (
         <button
