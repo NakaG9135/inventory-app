@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 
 export default function BetaBanner() {
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startTimer = () => {
@@ -12,7 +12,6 @@ export default function BetaBanner() {
   };
 
   useEffect(() => {
-    startTimer();
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
@@ -25,7 +24,7 @@ export default function BetaBanner() {
     return (
       <button
         onClick={show}
-        className="fixed top-2 right-2 z-[100] bg-yellow-400 text-black text-[12px] font-bold px-2 py-1 rounded shadow md:hidden"
+        className="fixed top-2 right-2 z-[100] bg-yellow-400 text-black text-[16px] font-bold px-4 py-2 rounded shadow md:hidden"
       >
         お知らせ
       </button>
