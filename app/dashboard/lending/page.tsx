@@ -53,6 +53,9 @@ export default function LendingPage() {
   // 現場名サジェスト
   const [showSiteSuggest, setShowSiteSuggest] = useState(false);
 
+  // 貸出物管理セクション開閉
+  const [showItemSection, setShowItemSection] = useState(false);
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -216,8 +219,15 @@ export default function LendingPage() {
 
       {/* Admin: 貸出物管理 */}
       {isAdmin && (
-        <section className="bg-white border rounded-lg p-4 mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 mb-3">貸出物の管理</h2>
+        <section className="bg-white border rounded-lg mb-6">
+          <button
+            onClick={() => setShowItemSection(!showItemSection)}
+            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 rounded-lg"
+          >
+            <h2 className="text-sm font-semibold text-gray-500">貸出物の管理</h2>
+            <span className="text-lg text-gray-400">{showItemSection ? "▲ 閉じる" : "▼ 開く"}</span>
+          </button>
+          {showItemSection && <div className="px-4 pb-4">
           <div className="flex gap-2 mb-3">
             <input
               type="text"
@@ -266,6 +276,7 @@ export default function LendingPage() {
               ))}
             </div>
           )}
+          </div>}
         </section>
       )}
 
