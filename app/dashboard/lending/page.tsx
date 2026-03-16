@@ -227,8 +227,7 @@ export default function LendingPage() {
             <h2 className="text-sm font-semibold text-gray-500">貸出物の管理</h2>
             <span className="text-lg text-gray-400">{showItemSection ? "▲ 閉じる" : "▼ 開く"}</span>
           </button>
-          {showItemSection && <div className="px-4 pb-4">
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 px-4 pb-3">
             <input
               type="text"
               value={newItemName}
@@ -245,6 +244,7 @@ export default function LendingPage() {
               追加
             </button>
           </div>
+          {showItemSection && <div className="px-4 pb-4">
           {lendingItems.length > 0 && (
             <div className="space-y-1">
               {lendingItems.map((item) => (
