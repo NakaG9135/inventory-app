@@ -108,8 +108,22 @@ export default function LendingPage() {
 
   // Admin: 貸出物CRUD
   const handleAddItem = async () => {
-    if (!newItemName.trim()) return;
-    await supabase.from("lending_items").insert({ name: newItemName.trim() });
+    const name = newItemName.trim();
+    if (!name) return;
+
+    // 類似チェック: 完全一致 or ベース名が同じ（末尾の丸数字を除いて比較）
+    const baseName = name.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]$/, "");
+    const similar = lendingItems.filter((item) => {
+      const itemBase = item.name.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]$/, "");
+      return item.name === name || itemBase === baseName;
+    });
+
+    if (similar.length > 0) {
+      const list = similar.map((s) => s.name).join("、");
+      if (!confirm(`類似の貸出物があります:\n${list}\n\nそのまま「${name}」を追加しますか？`)) return;
+    }
+
+    await supabase.from("lending_items").insert({ name });
     setNewItemName("");
     fetchLendingItems();
   };
