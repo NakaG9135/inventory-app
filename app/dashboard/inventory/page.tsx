@@ -11,6 +11,13 @@ interface OpModal {
   siteConfirmPending: boolean;
 }
 
+interface ManagerModal {
+  siteName: string;
+  itemId: string;
+  quantity: number;
+  managerName: string;
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState<any[]>([]);
   const [searchCategory, setSearchCategory] = useState("");
@@ -20,6 +27,8 @@ export default function InventoryPage() {
   const [opModal, setOpModal] = useState<OpModal | null>(null);
   const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [managerModal, setManagerModal] = useState<ManagerModal | null>(null);
+  const [workers, setWorkers] = useState<{ id: string; name: string }[]>([]);
 
   const fetchItems = async () => {
     let query = supabase.from("inventory").select("*").order("created_at", { ascending: true });
@@ -42,12 +51,18 @@ export default function InventoryPage() {
     }
   };
 
+  const fetchWorkers = async () => {
+    const { data } = await supabase.from("users_profile").select("id, name").order("name");
+    if (data) setWorkers(data);
+  };
+
   useEffect(() => {
     fetchItems();
   }, [searchCategory, searchManufacturer, searchDetail]);
 
   useEffect(() => {
     fetchPastSiteNames();
+    fetchWorkers();
   }, []);
 
   const updateQuantity = async (change: number) => {
@@ -92,6 +107,123 @@ export default function InventoryPage() {
     fetchPastSiteNames();
   };
 
+  const handleReserve = async () => {
+    if (!opModal) return;
+    const { itemId, quantity, siteName } = opModal;
+    if (quantity <= 0 || !siteName.trim()) return;
+
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData?.user) {
+      alert("ログインしてください");
+      return;
+    }
+
+    // Get operator name
+    const { data: profile } = await supabase
+      .from("users_profile")
+      .select("name")
+      .eq("id", userData.user.id)
+      .single();
+    const operatorName = profile?.name || "不明";
+
+    // Check if site already exists
+    const { data: existingSite } = await supabase
+      .from("material_reserve_sites")
+      .select("id")
+      .eq("site_name", siteName.trim())
+      .single();
+
+    if (existingSite) {
+      // Site exists: upsert item
+      await upsertReserveItem(existingSite.id, itemId, quantity, operatorName);
+    } else {
+      // New site: show manager selection modal
+      setManagerModal({
+        siteName: siteName.trim(),
+        itemId,
+        quantity,
+        managerName: "",
+      });
+      return; // Don't close opModal yet
+    }
+
+    setOpModal(null);
+  };
+
+  const confirmManagerAndReserve = async () => {
+    if (!managerModal || !managerModal.managerName.trim()) {
+      alert("管理者を選択してください");
+      return;
+    }
+
+    // Create site
+    const { data: newSite, error: siteError } = await supabase
+      .from("material_reserve_sites")
+      .insert({ site_name: managerModal.siteName, manager_name: managerModal.managerName.trim() })
+      .select("id")
+      .single();
+
+    if (siteError || !newSite) {
+      alert("現場の登録に失敗しました: " + (siteError?.message || ""));
+      return;
+    }
+
+    const { data: userData } = await supabase.auth.getUser();
+    const { data: profile } = await supabase
+      .from("users_profile")
+      .select("name")
+      .eq("id", userData?.user?.id || "")
+      .single();
+    const operatorName = profile?.name || "不明";
+
+    await upsertReserveItem(newSite.id, managerModal.itemId, managerModal.quantity, operatorName);
+
+    setManagerModal(null);
+    setOpModal(null);
+  };
+
+  const upsertReserveItem = async (siteId: string, itemId: string, quantity: number, operatorName: string) => {
+    // Check if same item already exists at this site
+    const { data: existing } = await supabase
+      .from("material_reserve_items")
+      .select("id, quantity")
+      .eq("site_id", siteId)
+      .eq("item_id", itemId)
+      .single();
+
+    if (existing) {
+      // Add quantity to existing
+      const { error } = await supabase
+        .from("material_reserve_items")
+        .update({
+          quantity: existing.quantity + quantity,
+          operator_name: operatorName,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id);
+      if (error) {
+        alert("確保品の更新に失敗しました: " + error.message);
+        return;
+      }
+    } else {
+      // Insert new
+      const { error } = await supabase
+        .from("material_reserve_items")
+        .insert({
+          site_id: siteId,
+          item_id: itemId,
+          quantity,
+          operator_name: operatorName,
+        });
+      if (error) {
+        alert("確保品の登録に失敗しました: " + error.message);
+        return;
+      }
+    }
+
+    alert("材料を確保しました");
+  };
+
   const toggleSort = (key: "type" | "maker" | "detail") => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(key); setSortDir("asc"); }
@@ -116,6 +248,44 @@ export default function InventoryPage() {
   return (
     <div className="p-6">
       <h1 className="text-xl font-bold mb-4">在庫一覧</h1>
+
+      {/* 管理者選択モーダル */}
+      {managerModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h2 className="text-base font-bold mb-3">新しい現場の管理者を選択</h2>
+            <p className="text-sm text-gray-600 mb-3">
+              現場名: <span className="font-bold">{managerModal.siteName}</span>
+            </p>
+            <label className="text-xs text-gray-500 mb-1 block">管理者</label>
+            <select
+              value={managerModal.managerName}
+              onChange={(e) => setManagerModal((p) => p && { ...p, managerName: e.target.value })}
+              className="border rounded p-2 w-full text-sm mb-4"
+            >
+              <option value="">選択してください</option>
+              {workers.map((w) => (
+                <option key={w.id} value={w.name}>{w.name}</option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <button
+                onClick={confirmManagerAndReserve}
+                disabled={!managerModal.managerName.trim()}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                確定
+              </button>
+              <button
+                onClick={() => setManagerModal(null)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 操作モーダル */}
       {opModal && (
@@ -185,7 +355,7 @@ export default function InventoryPage() {
               )}
             </div>
 
-            {/* 入庫・出庫・キャンセル */}
+            {/* 入庫・出庫・材料確保・キャンセル */}
             <div className="flex gap-2 mb-2">
               <button
                 onClick={() => updateQuantity(1)}
@@ -202,6 +372,13 @@ export default function InventoryPage() {
                 出庫
               </button>
             </div>
+            <button
+              onClick={handleReserve}
+              disabled={!canSubmit}
+              className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded font-bold text-sm mb-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              材料確保
+            </button>
             <button
               onClick={() => setOpModal(null)}
               className="w-full bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"

@@ -36,6 +36,7 @@ export default function Sidebar() {
 
   const links = [
     { href: "/dashboard/inventory", label: "在庫一覧", adminOnly: false },
+    { href: "/dashboard/reserves", label: "材料確保", adminOnly: false },
     { href: "/dashboard/report", label: "日報", adminOnly: false },
     { href: "/dashboard/report-drafts", label: "一時保存した日報", adminOnly: false },
     { href: "/dashboard/report-logs", label: "日報ログ", adminOnly: false },
