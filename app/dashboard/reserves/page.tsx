@@ -209,7 +209,7 @@ export default function ReservesPage() {
                                 {item.quantity} {item.inventory?.unit}
                               </td>
                               <td className="py-2">
-                                {currentUserRole === "admin" || currentUserName === site.manager_name && (
+                                {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
                                     className="text-red-400 hover:text-red-600 text-xs"
@@ -224,7 +224,7 @@ export default function ReservesPage() {
                       </table>
                     </div>
                   )}
-                  {currentUserRole === "admin" || currentUserName === site.manager_name && (
+                  {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
                     <div className="mt-3 text-right">
                       <button
                         onClick={() => handleDeleteSite(site.id)}
