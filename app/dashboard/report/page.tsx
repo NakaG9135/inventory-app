@@ -483,8 +483,8 @@ function ReportForm() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-500">使用部材</h2>
           <button onClick={addGroup}
-            className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 px-3 py-1 rounded">
-            ＋ 工区を追加
+            className="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 px-4 py-2 rounded font-semibold">
+            ＋ 項目を追加
           </button>
         </div>
 
