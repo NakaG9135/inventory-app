@@ -49,6 +49,7 @@ export default function LendingPage() {
   const [searchItem, setSearchItem] = useState("");
   const [searchSite, setSearchSite] = useState("");
   const [searchManager, setSearchManager] = useState("");
+  const [searchMasterItem, setSearchMasterItem] = useState("");
 
   // 現場名サジェスト
   const [showSiteSuggest, setShowSiteSuggest] = useState(false);
@@ -268,9 +269,22 @@ export default function LendingPage() {
             </button>
           </div>
           {showItemSection && <div className="px-4 pb-4">
-          {lendingItems.length > 0 && (
+          <div className="mb-2">
+            <input
+              type="text"
+              value={searchMasterItem}
+              onChange={(e) => setSearchMasterItem(e.target.value)}
+              placeholder="貸出物を検索"
+              className="border rounded p-2 w-full text-sm"
+            />
+          </div>
+          {lendingItems.length > 0 && (() => {
+            const filtered = lendingItems.filter((item) =>
+              !searchMasterItem || item.name.toLowerCase().includes(searchMasterItem.toLowerCase())
+            );
+            return filtered.length > 0 ? (
             <div className="space-y-1">
-              {lendingItems.map((item) => (
+              {filtered.map((item) => (
                 <div key={item.id} className="flex items-center gap-2 py-1">
                   {editingItemId === item.id ? (
                     <>
@@ -298,7 +312,10 @@ export default function LendingPage() {
                 </div>
               ))}
             </div>
-          )}
+            ) : (
+              <p className="text-gray-400 text-sm">検索結果がありません</p>
+            );
+          })()}
           </div>}
         </section>
       )}
