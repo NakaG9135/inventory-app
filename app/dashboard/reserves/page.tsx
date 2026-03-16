@@ -36,6 +36,18 @@ export default function ReservesPage() {
   const [sites, setSites] = useState<ReserveSite[]>([]);
   const [openSiteId, setOpenSiteId] = useState<string | null>(null);
   const [logModal, setLogModal] = useState<{ item: ReserveItem; logs: ReserveLog[] } | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string>("");
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from("users_profile").select("name").eq("id", user.id).single();
+        if (data) setCurrentUserName(data.name);
+      }
+    };
+    fetchUser();
+  }, []);
 
   const fetchSites = async () => {
     const { data: sitesData } = await supabase
@@ -193,12 +205,14 @@ export default function ReservesPage() {
                                 {item.quantity} {item.inventory?.unit}
                               </td>
                               <td className="py-2">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
-                                  className="text-red-400 hover:text-red-600 text-xs"
-                                >
-                                  削除
-                                </button>
+                                {currentUserName === site.manager_name && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
+                                    className="text-red-400 hover:text-red-600 text-xs"
+                                  >
+                                    削除
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -206,14 +220,16 @@ export default function ReservesPage() {
                       </table>
                     </div>
                   )}
-                  <div className="mt-3 text-right">
-                    <button
-                      onClick={() => handleDeleteSite(site.id)}
-                      className="text-red-400 hover:text-red-600 text-xs"
-                    >
-                      この現場を削除
-                    </button>
-                  </div>
+                  {currentUserName === site.manager_name && (
+                    <div className="mt-3 text-right">
+                      <button
+                        onClick={() => handleDeleteSite(site.id)}
+                        className="text-red-400 hover:text-red-600 text-xs"
+                      >
+                        この現場を削除
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
