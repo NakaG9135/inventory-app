@@ -51,6 +51,7 @@ function ReportForm() {
   const [workTimeStart, setWorkTimeStart] = useState("");
   const [workTimeEnd, setWorkTimeEnd] = useState("");
   const [vehicles, setVehicles] = useState<string[]>([]);
+  const [customVehicle, setCustomVehicle] = useState("");
   const [workers, setWorkers] = useState<string[]>([]);
   const [customWorker, setCustomWorker] = useState("");
   const [workDescription, setWorkDescription] = useState("");
@@ -149,6 +150,13 @@ function ReportForm() {
   // 車両
   const toggleVehicle = (number: string) =>
     setVehicles((v) => v.includes(number) ? v.filter((x) => x !== number) : [...v, number]);
+  const addCustomVehicle = () => {
+    const name = customVehicle.trim();
+    if (!name) return;
+    if (!vehicles.includes(name)) setVehicles((v) => [...v, name]);
+    setCustomVehicle("");
+  };
+  const removeVehicle = (name: string) => setVehicles((v) => v.filter((x) => x !== name));
 
   // 作業員
   const toggleWorker = (name: string) =>
@@ -313,6 +321,7 @@ function ReportForm() {
     setWorkTimeStart("");
     setWorkTimeEnd("");
     setVehicles([]);
+    setCustomVehicle("");
     setWorkers([]);
     setCustomWorker("");
     setWorkDescription("");
@@ -411,11 +420,22 @@ function ReportForm() {
             {vehicles.filter(Boolean).map((v) => (
               <span key={v} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-full px-2.5 py-0.5 text-xs">
                 {v}
-                <button onClick={() => toggleVehicle(v)} className="text-blue-300 hover:text-red-500 leading-none ml-0.5">×</button>
+                <button onClick={() => removeVehicle(v)} className="text-blue-300 hover:text-red-500 leading-none ml-0.5">×</button>
               </span>
             ))}
           </div>
         )}
+        <div className="flex gap-2 min-w-0 mt-3">
+          <input type="text" value={customVehicle}
+            onChange={(e) => setCustomVehicle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addCustomVehicle()}
+            placeholder="リース車両等を直接入力"
+            className="border rounded p-2 flex-1 min-w-0" />
+          <button onClick={addCustomVehicle} disabled={!customVehicle.trim()}
+            className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded disabled:opacity-40 shrink-0">
+            追加
+          </button>
+        </div>
       </section>
 
       {/* 作業員 */}
