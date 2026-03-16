@@ -162,11 +162,13 @@ export default function LendingPage() {
   };
 
   // 返却
-  const handleReturn = async (id: string, returnType: "通常" | "前倒し") => {
-    const msg = returnType === "前倒し"
-      ? "期限前ですが、前倒しで返却しますか？"
-      : "この貸出物を返却しますか？";
-    if (!confirm(msg)) return;
+  const handleReturn = async (id: string, returnType: "通常" | "前倒し" | "admin代行") => {
+    const msgs: Record<string, string> = {
+      "前倒し": "期限前ですが、前倒しで返却しますか？",
+      "通常": "この貸出物を返却しますか？",
+      "admin代行": "管理者/登録者に確認済みとして、admin代行で返却しますか？",
+    };
+    if (!confirm(msgs[returnType])) return;
     await supabase.from("lending_records").update({
       returned: true,
       returned_at: new Date().toISOString(),
@@ -430,7 +432,7 @@ export default function LendingPage() {
                       <td className="py-2 pr-3">
                         {r.returned ? (
                           <span className="text-xs text-green-600">
-                            {r.return_type === "前倒し" ? "前倒し返却" : "返却済"} {r.returned_at ? formatDateTime(r.returned_at) : ""}
+                            {r.return_type === "前倒し" ? "前倒し返却" : r.return_type === "admin代行" ? "admin代行返却" : "返却済"} {r.returned_at ? formatDateTime(r.returned_at) : ""}
                           </span>
                         ) : (
                           <span className="text-xs text-orange-500 font-bold">貸出中</span>
@@ -458,6 +460,14 @@ export default function LendingPage() {
                             </button>
                           );
                         })()}
+                        {isAdmin && !r.returned && (
+                          <button
+                            onClick={() => handleReturn(r.id, "admin代行")}
+                            className="bg-purple-100 hover:bg-purple-200 text-purple-700 text-xs px-3 py-1 rounded font-bold whitespace-nowrap"
+                          >
+                            admin返却
+                          </button>
+                        )}
                         {isAdmin && (
                           <button
                             onClick={() => handleDeleteRecord(r.id)}
