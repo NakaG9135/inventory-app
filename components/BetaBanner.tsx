@@ -1,16 +1,36 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function BetaBanner() {
   const [visible, setVisible] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startTimer = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setVisible(false), 60000);
+  };
 
   useEffect(() => {
-    const timer = setTimeout(() => setVisible(false), 60000);
-    return () => clearTimeout(timer);
+    startTimer();
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
-  if (!visible) return null;
+  const show = () => {
+    setVisible(true);
+    startTimer();
+  };
+
+  if (!visible) {
+    return (
+      <button
+        onClick={show}
+        className="fixed top-2 right-2 z-[100] bg-yellow-400 text-black text-[12px] font-bold px-2 py-1 rounded shadow md:hidden"
+      >
+        お知らせ
+      </button>
+    );
+  }
 
   return (
     <div
