@@ -19,6 +19,7 @@ interface LendingRecord {
   period_end: string;
   returned: boolean;
   returned_at: string | null;
+  return_type: string;
   created_at: string;
   lending_items: { name: string } | null;
 }
@@ -161,11 +162,15 @@ export default function LendingPage() {
   };
 
   // 返却
-  const handleReturn = async (id: string) => {
-    if (!confirm("この貸出物を返却しますか？")) return;
+  const handleReturn = async (id: string, returnType: "通常" | "前倒し") => {
+    const msg = returnType === "前倒し"
+      ? "期限前ですが、前倒しで返却しますか？"
+      : "この貸出物を返却しますか？";
+    if (!confirm(msg)) return;
     await supabase.from("lending_records").update({
       returned: true,
       returned_at: new Date().toISOString(),
+      return_type: returnType,
     }).eq("id", id);
     fetchRecords();
   };
@@ -424,7 +429,9 @@ export default function LendingPage() {
                     {isAdmin && (
                       <td className="py-2 pr-3">
                         {r.returned ? (
-                          <span className="text-xs text-green-600">返却済 {r.returned_at ? formatDateTime(r.returned_at) : ""}</span>
+                          <span className="text-xs text-green-600">
+                            {r.return_type === "前倒し" ? "前倒し返却" : "返却済"} {r.returned_at ? formatDateTime(r.returned_at) : ""}
+                          </span>
                         ) : (
                           <span className="text-xs text-orange-500 font-bold">貸出中</span>
                         )}
@@ -432,14 +439,25 @@ export default function LendingPage() {
                     )}
                     <td className="py-2">
                       <div className="flex gap-1">
-                        {!r.returned && (r.manager_name === currentUserName || r.registrant_name === currentUserName) && (
-                          <button
-                            onClick={() => handleReturn(r.id)}
-                            className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1 rounded font-bold"
-                          >
-                            返却
-                          </button>
-                        )}
+                        {!r.returned && (r.manager_name === currentUserName || r.registrant_name === currentUserName) && (() => {
+                          const today = new Date().toISOString().slice(0, 10);
+                          const isBeforeDeadline = today <= r.period_end;
+                          return isBeforeDeadline ? (
+                            <button
+                              onClick={() => handleReturn(r.id, "前倒し")}
+                              className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-xs px-3 py-1 rounded font-bold whitespace-nowrap"
+                            >
+                              前倒し返却
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleReturn(r.id, "通常")}
+                              className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1 rounded font-bold"
+                            >
+                              返却
+                            </button>
+                          );
+                        })()}
                         {isAdmin && (
                           <button
                             onClick={() => handleDeleteRecord(r.id)}
