@@ -170,6 +170,13 @@ export default function LendingPage() {
     fetchRecords();
   };
 
+  // Admin: 貸出記録の削除
+  const handleDeleteRecord = async (id: string) => {
+    if (!confirm("この貸出記録を削除しますか？")) return;
+    await supabase.from("lending_records").delete().eq("id", id);
+    fetchRecords();
+  };
+
   const formatDate = (iso: string) => {
     if (!iso) return "";
     const d = new Date(iso);
@@ -400,7 +407,7 @@ export default function LendingPage() {
                   <th className="py-2 pr-3">使用期間</th>
                   <th className="py-2 pr-3">入力日</th>
                   {isAdmin && <th className="py-2 pr-3">状態</th>}
-                  <th className="py-2 w-16"></th>
+                  <th className="py-2 w-24"></th>
                 </tr>
               </thead>
               <tbody>
@@ -424,14 +431,24 @@ export default function LendingPage() {
                       </td>
                     )}
                     <td className="py-2">
-                      {!r.returned && (
-                        <button
-                          onClick={() => handleReturn(r.id)}
-                          className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1 rounded font-bold"
-                        >
-                          返却
-                        </button>
-                      )}
+                      <div className="flex gap-1">
+                        {!r.returned && (
+                          <button
+                            onClick={() => handleReturn(r.id)}
+                            className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1 rounded font-bold"
+                          >
+                            返却
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDeleteRecord(r.id)}
+                            className="bg-red-100 hover:bg-red-200 text-red-600 text-xs px-3 py-1 rounded font-bold"
+                          >
+                            削除
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
