@@ -54,7 +54,7 @@ export default function Sidebar() {
     <>
       {/* モバイル用ハンバーガーボタン */}
       <button
-        className="md:hidden fixed top-32 left-3 z-50 bg-gray-800 text-white p-2 rounded"
+        className="md:hidden fixed top-3 left-3 z-50 bg-gray-800 text-white p-2 rounded"
         onClick={() => setOpen((v) => !v)}
       >
         {open ? "✕" : "☰"}
@@ -78,7 +78,7 @@ export default function Sidebar() {
           md:translate-x-0
         `}
       >
-        <h2 className="text-lg font-bold mb-4 mt-36 md:mt-0">メニュー</h2>
+        <h2 className="text-lg font-bold mb-4">メニュー</h2>
         <ul className="space-y-2 flex-1">
           {visibleLinks.map((l) => (
             <li key={l.href}>
