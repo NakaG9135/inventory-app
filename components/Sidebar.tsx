@@ -78,7 +78,7 @@ export default function Sidebar() {
           md:translate-x-0
         `}
       >
-        <h2 className="text-lg font-bold mb-4">メニュー</h2>
+        <h2 className="text-lg font-bold mb-4 mt-10 md:mt-0">メニュー</h2>
         <ul className="space-y-2 flex-1">
           {visibleLinks.map((l) => (
             <li key={l.href}>
