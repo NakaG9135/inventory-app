@@ -111,13 +111,22 @@ export default function LendingPage() {
     const name = newItemName.trim();
     if (!name) return;
 
-    // 類似チェック: 完全一致 or ベース名が同じ（末尾の丸数字を除いて比較）
-    const baseName = name.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]$/, "");
-    const similar = lendingItems.filter((item) => {
-      const itemBase = item.name.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]$/, "");
-      return item.name === name || itemBase === baseName;
-    });
+    // スペースと丸数字を除去してベース名を取得
+    const normalize = (s: string) => s.replace(/\s+/g, "").replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]+$/, "");
+    const normalizeAll = (s: string) => s.replace(/\s+/g, "");
 
+    const nameNorm = normalizeAll(name);
+
+    // 完全一致チェック（スペース差異も同一とみなす）
+    const exact = lendingItems.find((item) => normalizeAll(item.name) === nameNorm);
+    if (exact) {
+      alert(`「${exact.name}」は既に登録されています。登録できません。`);
+      return;
+    }
+
+    // 類似チェック: ベース名が同じ
+    const baseName = normalize(name);
+    const similar = lendingItems.filter((item) => normalize(item.name) === baseName);
     if (similar.length > 0) {
       const list = similar.map((s) => s.name).join("、");
       if (!confirm(`類似の貸出物があります:\n${list}\n\nそのまま「${name}」を追加しますか？`)) return;
