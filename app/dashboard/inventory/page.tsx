@@ -191,6 +191,8 @@ export default function InventoryPage() {
       .eq("item_id", itemId)
       .single();
 
+    let reserveItemId: string;
+
     if (existing) {
       // Add quantity to existing
       const { error } = await supabase
@@ -205,21 +207,32 @@ export default function InventoryPage() {
         alert("確保品の更新に失敗しました: " + error.message);
         return;
       }
+      reserveItemId = existing.id;
     } else {
       // Insert new
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from("material_reserve_items")
         .insert({
           site_id: siteId,
           item_id: itemId,
           quantity,
           operator_name: operatorName,
-        });
-      if (error) {
-        alert("確保品の登録に失敗しました: " + error.message);
+        })
+        .select("id")
+        .single();
+      if (error || !inserted) {
+        alert("確保品の登録に失敗しました: " + (error?.message || ""));
         return;
       }
+      reserveItemId = inserted.id;
     }
+
+    // Insert operation log
+    await supabase.from("material_reserve_logs").insert({
+      reserve_item_id: reserveItemId,
+      operator_name: operatorName,
+      quantity,
+    });
 
     alert("材料を確保しました");
   };

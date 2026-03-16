@@ -25,9 +25,17 @@ interface ReserveItem {
   } | null;
 }
 
+interface ReserveLog {
+  id: string;
+  operator_name: string;
+  quantity: number;
+  created_at: string;
+}
+
 export default function ReservesPage() {
   const [sites, setSites] = useState<ReserveSite[]>([]);
   const [openSiteId, setOpenSiteId] = useState<string | null>(null);
+  const [logModal, setLogModal] = useState<{ item: ReserveItem; logs: ReserveLog[] } | null>(null);
 
   const fetchSites = async () => {
     const { data: sitesData } = await supabase
@@ -57,6 +65,16 @@ export default function ReservesPage() {
     fetchSites();
   }, []);
 
+  const handleShowLogs = async (item: ReserveItem) => {
+    const { data } = await supabase
+      .from("material_reserve_logs")
+      .select("*")
+      .eq("reserve_item_id", item.id)
+      .order("created_at", { ascending: false });
+
+    setLogModal({ item, logs: (data || []) as ReserveLog[] });
+  };
+
   const handleDeleteItem = async (itemId: string) => {
     if (!confirm("この確保品を削除しますか？")) return;
     await supabase.from("material_reserve_items").delete().eq("id", itemId);
@@ -69,9 +87,61 @@ export default function ReservesPage() {
     fetchSites();
   };
 
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
   return (
     <div className="p-6 max-w-4xl">
       <h1 className="text-xl font-bold mb-6">材料確保</h1>
+
+      {/* 操作履歴モーダル */}
+      {logModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-[28rem] max-h-[80vh] flex flex-col">
+            <h2 className="text-base font-bold mb-1">操作履歴</h2>
+            <div className="text-sm text-gray-700 bg-gray-50 rounded p-2 mb-4">
+              {logModal.item.inventory?.type}　{logModal.item.inventory?.maker}　{logModal.item.inventory?.detail}
+              <span className="ml-2 text-gray-400 text-xs">
+                （合計: {logModal.item.quantity} {logModal.item.inventory?.unit}）
+              </span>
+            </div>
+
+            <div className="overflow-y-auto flex-1 min-h-0">
+              {logModal.logs.length === 0 ? (
+                <p className="text-gray-400 text-sm">履歴がありません</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-gray-500">
+                      <th className="py-2 pr-3">日時</th>
+                      <th className="py-2 pr-3">操作者</th>
+                      <th className="py-2 text-center">数量</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logModal.logs.map((log) => (
+                      <tr key={log.id} className="border-b last:border-b-0">
+                        <td className="py-2 pr-3 text-xs text-gray-500 whitespace-nowrap">{formatDate(log.created_at)}</td>
+                        <td className="py-2 pr-3">{log.operator_name}</td>
+                        <td className="py-2 text-center font-bold">{log.quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <button
+              onClick={() => setLogModal(null)}
+              className="mt-4 w-full bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
 
       {sites.length === 0 ? (
         <p className="text-gray-400 text-sm">確保された材料はありません</p>
@@ -106,23 +176,25 @@ export default function ReservesPage() {
                             <th className="py-2 pr-3">メーカー</th>
                             <th className="py-2 pr-3">詳細</th>
                             <th className="py-2 pr-3 text-center">数量</th>
-                            <th className="py-2 pr-3">操作者</th>
                             <th className="py-2 w-16"></th>
                           </tr>
                         </thead>
                         <tbody>
                           {site.items.map((item) => (
-                            <tr key={item.id} className="border-b last:border-b-0 hover:bg-gray-50">
+                            <tr
+                              key={item.id}
+                              className="border-b last:border-b-0 hover:bg-blue-50 cursor-pointer"
+                              onClick={() => handleShowLogs(item)}
+                            >
                               <td className="py-2 pr-3">{item.inventory?.type}</td>
                               <td className="py-2 pr-3">{item.inventory?.maker}</td>
                               <td className="py-2 pr-3">{item.inventory?.detail}</td>
                               <td className="py-2 pr-3 text-center font-bold">
                                 {item.quantity} {item.inventory?.unit}
                               </td>
-                              <td className="py-2 pr-3 text-xs text-gray-500">{item.operator_name}</td>
                               <td className="py-2">
                                 <button
-                                  onClick={() => handleDeleteItem(item.id)}
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
                                   className="text-red-400 hover:text-red-600 text-xs"
                                 >
                                   削除

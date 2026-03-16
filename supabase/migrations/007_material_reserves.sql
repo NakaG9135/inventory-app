@@ -18,9 +18,19 @@ create table if not exists material_reserve_items (
   unique(site_id, item_id)
 );
 
+-- 材料確保: 操作履歴テーブル
+create table if not exists material_reserve_logs (
+  id uuid default gen_random_uuid() primary key,
+  reserve_item_id uuid not null references material_reserve_items(id) on delete cascade,
+  operator_name text not null default '',
+  quantity int not null default 0,
+  created_at timestamptz default now()
+);
+
 -- RLS
 alter table material_reserve_sites enable row level security;
 alter table material_reserve_items enable row level security;
+alter table material_reserve_logs enable row level security;
 
 -- Sites policies
 create policy "auth_select_reserve_sites" on material_reserve_sites for select to authenticated using (true);
@@ -33,3 +43,8 @@ create policy "auth_select_reserve_items" on material_reserve_items for select t
 create policy "auth_insert_reserve_items" on material_reserve_items for insert to authenticated with check (true);
 create policy "auth_update_reserve_items" on material_reserve_items for update to authenticated using (true);
 create policy "auth_delete_reserve_items" on material_reserve_items for delete to authenticated using (true);
+
+-- Logs policies
+create policy "auth_select_reserve_logs" on material_reserve_logs for select to authenticated using (true);
+create policy "auth_insert_reserve_logs" on material_reserve_logs for insert to authenticated with check (true);
+create policy "auth_delete_reserve_logs" on material_reserve_logs for delete to authenticated using (true);
