@@ -432,7 +432,7 @@ export default function LendingPage() {
                     )}
                     <td className="py-2">
                       <div className="flex gap-1">
-                        {!r.returned && (
+                        {!r.returned && (r.manager_name === currentUserName || r.registrant_name === currentUserName) && (
                           <button
                             onClick={() => handleReturn(r.id)}
                             className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1 rounded font-bold"
