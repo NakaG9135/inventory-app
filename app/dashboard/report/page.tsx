@@ -44,12 +44,13 @@ function ReportForm() {
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
   const [rosterWorkers, setRosterWorkers] = useState<string[]>([]);
+  const [registeredVehicles, setRegisteredVehicles] = useState<string[]>([]);
 
   const [siteName, setSiteName] = useState("");
   const [workDate, setWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [workTimeStart, setWorkTimeStart] = useState("");
   const [workTimeEnd, setWorkTimeEnd] = useState("");
-  const [vehicles, setVehicles] = useState<string[]>([""]);
+  const [vehicles, setVehicles] = useState<string[]>([]);
   const [workers, setWorkers] = useState<string[]>([]);
   const [customWorker, setCustomWorker] = useState("");
   const [workDescription, setWorkDescription] = useState("");
@@ -84,9 +85,14 @@ function ReportForm() {
         .order("name");
       if (data) setRosterWorkers(data.map((d: any) => d.name));
     };
+    const fetchVehicles = async () => {
+      const { data } = await supabase.from("vehicles").select("number").order("created_at");
+      if (data) setRegisteredVehicles(data.map((d: any) => d.number));
+    };
     fetchInventory();
     fetchSites();
     fetchRosterWorkers();
+    fetchVehicles();
   }, []);
 
   // 下書き読み込み
@@ -105,7 +111,7 @@ function ReportForm() {
       const parts = (data.work_time || "").split("～");
       setWorkTimeStart(parts[0] || "");
       setWorkTimeEnd(parts[1] || "");
-      setVehicles(data.vehicles?.length ? data.vehicles : [""]);
+      setVehicles(data.vehicles?.length ? data.vehicles : []);
       setWorkers(data.workers?.length ? data.workers : []);
       setWorkDescription(data.work_description || "");
 
@@ -141,10 +147,8 @@ function ReportForm() {
   }, [draftId]);
 
   // 車両
-  const addVehicle = () => setVehicles((v) => [...v, ""]);
-  const removeVehicle = (i: number) => setVehicles((v) => v.filter((_, idx) => idx !== i));
-  const updateVehicle = (i: number, val: string) =>
-    setVehicles((v) => v.map((x, idx) => (idx === i ? val : x)));
+  const toggleVehicle = (number: string) =>
+    setVehicles((v) => v.includes(number) ? v.filter((x) => x !== number) : [...v, number]);
 
   // 作業員
   const toggleWorker = (name: string) =>
@@ -308,7 +312,7 @@ function ReportForm() {
     setWorkDate(new Date().toISOString().slice(0, 10));
     setWorkTimeStart("");
     setWorkTimeEnd("");
-    setVehicles([""]);
+    setVehicles([]);
     setWorkers([]);
     setCustomWorker("");
     setWorkDescription("");
@@ -388,21 +392,30 @@ function ReportForm() {
 
       {/* 使用車両 */}
       <section className="bg-white border rounded-lg p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-500">使用車両</h2>
-          <button onClick={addVehicle} className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">＋ 追加</button>
-        </div>
-        <div className="space-y-2">
-          {vehicles.map((v, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <input type="text" value={v} onChange={(e) => updateVehicle(i, e.target.value)}
-                placeholder={`車両 ${i + 1}`} className="border rounded p-2 flex-1" />
-              {vehicles.length > 1 && (
-                <button onClick={() => removeVehicle(i)} className="text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
-              )}
-            </div>
-          ))}
-        </div>
+        <h2 className="text-sm font-semibold text-gray-500 mb-3">使用車両</h2>
+        {registeredVehicles.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {registeredVehicles.map((number) => (
+              <label key={number} className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input type="checkbox" checked={vehicles.includes(number)}
+                  onChange={() => toggleVehicle(number)} className="accent-blue-500" />
+                <span>{number}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-400 text-sm">車両が登録されていません。管理者に車両の登録を依頼してください。</p>
+        )}
+        {vehicles.filter(Boolean).length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {vehicles.filter(Boolean).map((v) => (
+              <span key={v} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-full px-2.5 py-0.5 text-xs">
+                {v}
+                <button onClick={() => toggleVehicle(v)} className="text-blue-300 hover:text-red-500 leading-none ml-0.5">×</button>
+              </span>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* 作業員 */}
