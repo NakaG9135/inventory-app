@@ -59,6 +59,7 @@ function ReportForm() {
 
   // 新規部材登録
   const [newItemModal, setNewItemModal] = useState<{ groupKey: number; matKey: number; search: string } | null>(null);
+  const [newlyRegisteredIds, setNewlyRegisteredIds] = useState<Set<string>>(new Set());
   const [newItemType, setNewItemType] = useState("");
   const [newItemMaker, setNewItemMaker] = useState("");
   const [newItemDetail, setNewItemDetail] = useState("");
@@ -251,6 +252,7 @@ function ReportForm() {
 
     const newItem: InventoryItem = data;
     setInventoryItems((prev) => [...prev, newItem]);
+    setNewlyRegisteredIds((prev) => new Set(prev).add(newItem.id));
 
     if (newItemModal) {
       updateMatInGroup(newItemModal.groupKey, newItemModal.matKey, {
@@ -394,7 +396,8 @@ function ReportForm() {
         }
 
         // 確保で足りない分のみ在庫から追加で引く（確保分は確保時に既に引かれている）
-        if (remainingQty > 0) {
+        // 新規登録された商品は在庫から引かない
+        if (remainingQty > 0 && !newlyRegisteredIds.has(item.id)) {
           const { data: latest } = await supabase.from("inventory").select("quantity").eq("id", item.id).single();
           if (latest) {
             await supabase.from("inventory").update({ quantity: latest.quantity - remainingQty }).eq("id", item.id);
