@@ -190,6 +190,36 @@ export default function LendingPage() {
         alert(`「${itemName}」は以下の期間で貸出中のため登録できません:\n${details}`);
         return;
       }
+
+      // 同じ現場名＋同じ貸出物で日付が連続する場合、延長を提案
+      const nextDay = (dateStr: string) => {
+        const d = new Date(dateStr);
+        d.setDate(d.getDate() + 1);
+        return d.toISOString().slice(0, 10);
+      };
+      const consecutive = existingRecords.filter((r: any) =>
+        r.site_name === formSiteName.trim() && nextDay(r.period_end) === formPeriodStart
+      );
+      if (consecutive.length > 0) {
+        const rec = consecutive[0];
+        const itemName = rec.lending_items?.name || "";
+        if (confirm(
+          `「${itemName}」は同じ現場「${rec.site_name}」で${rec.period_start}～${rec.period_end}まで貸出中です。\n\n使用期間を${rec.period_end}→${formPeriodEnd}に延長しますか？\n（「いいえ」を選ぶと新規登録します）`
+        )) {
+          await supabase.from("lending_records").update({
+            period_end: formPeriodEnd,
+          }).eq("id", rec.id);
+
+          setFormItemId("");
+          setFormSiteName("");
+          setFormManager("");
+          setFormPeriodStart("");
+          setFormPeriodEnd("");
+          setShowForm(false);
+          fetchRecords();
+          return;
+        }
+      }
     }
 
     // 類似現場名チェック
