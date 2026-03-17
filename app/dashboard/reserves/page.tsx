@@ -42,6 +42,7 @@ export default function ReservesPage() {
   const [searchCategory, setSearchCategory] = useState("");
   const [searchManufacturer, setSearchManufacturer] = useState("");
   const [searchDetail, setSearchDetail] = useState("");
+  const [editDateModal, setEditDateModal] = useState<{ itemId: string; year: string; month: string; day: string } | null>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -122,6 +123,50 @@ export default function ReservesPage() {
   const handleDeleteSite = async (siteId: string) => {
     if (!confirm("この現場と全ての確保品を削除しますか？")) return;
     await supabase.from("material_reserve_sites").delete().eq("id", siteId);
+    fetchSites();
+  };
+
+  const openEditDate = (item: ReserveItem) => {
+    const parts = item.planned_date ? item.planned_date.split("-") : [];
+    setEditDateModal({
+      itemId: item.id,
+      year: parts[0] || "",
+      month: parts[1] ? String(Number(parts[1])) : "",
+      day: parts[2] ? String(Number(parts[2])) : "",
+    });
+  };
+
+  const handleUpdateDate = async () => {
+    if (!editDateModal) return;
+    const { itemId, year, month, day } = editDateModal;
+    if (!year || !month) {
+      alert("年と月は必須です");
+      return;
+    }
+    const now = new Date();
+    const isSameYearMonth = Number(year) === now.getFullYear() && Number(month) === now.getMonth() + 1;
+    if (isSameYearMonth && !day) {
+      alert("当月の場合は日の入力も必須です");
+      return;
+    }
+    if (day) {
+      const inputDate = new Date(Number(year), Number(month) - 1, Number(day));
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (inputDate < today) {
+        alert("使用予定日に過去の日付は指定できません");
+        return;
+      }
+    } else {
+      const inputMonth = new Date(Number(year), Number(month) - 1, 1);
+      const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      if (inputMonth < currentMonth) {
+        alert("使用予定日に過去の年月は指定できません");
+        return;
+      }
+    }
+    const newDate = `${year}-${month.padStart(2, "0")}${day ? "-" + day.padStart(2, "0") : ""}`;
+    await supabase.from("material_reserve_items").update({ planned_date: newDate, updated_at: new Date().toISOString() }).eq("id", itemId);
+    setEditDateModal(null);
     fetchSites();
   };
 
@@ -267,6 +312,14 @@ export default function ReservesPage() {
                               <td className={`py-2 pr-3 text-xs whitespace-nowrap ${expired ? "text-red-600 font-bold" : "text-gray-600"}`}>
                                 {item.planned_date ? item.planned_date.replace(/-/g, "/") : ""}
                                 {expired && " ※期限超過"}
+                                {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openEditDate(item); }}
+                                    className="ml-1 text-blue-500 hover:text-blue-700 text-xs"
+                                  >
+                                    変更
+                                  </button>
+                                )}
                               </td>
                               <td className="py-2">
                                 {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
@@ -299,6 +352,57 @@ export default function ReservesPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+      {/* 使用予定日変更モーダル */}
+      {editDateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-sm font-bold mb-4">使用予定日を変更</h3>
+            <div className="flex items-center gap-1 mb-4">
+              <input
+                type="number"
+                value={editDateModal.year}
+                onChange={(e) => setEditDateModal((p) => p && { ...p, year: e.target.value })}
+                placeholder="年"
+                className="border rounded p-2 w-20 text-sm text-center"
+                min="2024" max="2099"
+              />
+              <span className="text-sm shrink-0">年</span>
+              <input
+                type="number"
+                value={editDateModal.month}
+                onChange={(e) => setEditDateModal((p) => p && { ...p, month: e.target.value })}
+                placeholder="月"
+                className="border rounded p-2 w-16 text-sm text-center"
+                min="1" max="12"
+              />
+              <span className="text-sm shrink-0">月</span>
+              <input
+                type="number"
+                value={editDateModal.day}
+                onChange={(e) => setEditDateModal((p) => p && { ...p, day: e.target.value })}
+                placeholder="日"
+                className="border rounded p-2 w-16 text-sm text-center"
+                min="1" max="31"
+              />
+              <span className="text-sm shrink-0">日</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleUpdateDate}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold"
+              >
+                変更
+              </button>
+              <button
+                onClick={() => setEditDateModal(null)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
