@@ -21,6 +21,8 @@ export default function SitesPage() {
   const [editAddress, setEditAddress] = useState("");
   const [editOffice, setEditOffice] = useState("");
   const [editManager, setEditManager] = useState("");
+  const [editCompany, setEditCompany] = useState("");
+  const [registeredCompanies, setRegisteredCompanies] = useState<string[]>([]);
   const [workers, setWorkers] = useState<string[]>([]);
   const [searchSite, setSearchSite] = useState("");
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,7 @@ export default function SitesPage() {
     }));
 
     setSites(siteList);
+    setRegisteredCompanies([...new Set(Object.values(companyMap))].filter(Boolean).sort());
     setLoading(false);
   };
 
@@ -115,6 +118,7 @@ export default function SitesPage() {
     setEditAddress(site.address);
     setEditOffice(site.officeLocation);
     setEditManager(site.manager);
+    setEditCompany(site.companyName);
   };
 
   const handleSaveDetails = async (siteName: string) => {
@@ -139,8 +143,8 @@ export default function SitesPage() {
       });
     }
 
-    // adminのみ管理者を変更
-    if (currentUserRole === "admin" && editManager.trim()) {
+    // adminのみ管理者・会社名を変更
+    if (currentUserRole === "admin") {
       const { data: existingSite } = await supabase
         .from("material_reserve_sites")
         .select("id")
@@ -148,9 +152,12 @@ export default function SitesPage() {
         .single();
 
       if (existingSite) {
-        await supabase.from("material_reserve_sites").update({
-          manager_name: editManager.trim(),
-        }).eq("id", existingSite.id);
+        const updateData: any = {};
+        if (editManager.trim()) updateData.manager_name = editManager.trim();
+        if (editCompany !== undefined) updateData.company_name = editCompany.trim();
+        if (Object.keys(updateData).length > 0) {
+          await supabase.from("material_reserve_sites").update(updateData).eq("id", existingSite.id);
+        }
       }
     }
 
@@ -231,19 +238,49 @@ export default function SitesPage() {
                         />
                       </div>
                       {currentUserRole === "admin" && (
-                        <div>
-                          <label className="text-xs text-gray-500 block mb-1">管理者</label>
-                          <select
-                            value={editManager}
-                            onChange={(e) => setEditManager(e.target.value)}
-                            className="border rounded p-2 w-full text-sm"
-                          >
-                            <option value="">選択してください</option>
-                            {workers.map((w) => (
-                              <option key={w} value={w}>{w}</option>
-                            ))}
-                          </select>
-                        </div>
+                        <>
+                          <div>
+                            <label className="text-xs text-gray-500 block mb-1">会社名</label>
+                            <select
+                              value={editCompany}
+                              onChange={(e) => {
+                                if (e.target.value === "__new__") {
+                                  const name = prompt("新しい会社名を入力してください");
+                                  if (name && name.trim()) {
+                                    const exists = registeredCompanies.find((c) => c === name.trim());
+                                    if (exists) { setEditCompany(exists); }
+                                    else if (confirm(`「${name.trim()}」を新しい会社名として登録しますか？`)) {
+                                      setEditCompany(name.trim());
+                                      setRegisteredCompanies((prev) => [...prev, name.trim()].sort());
+                                    }
+                                  }
+                                } else {
+                                  setEditCompany(e.target.value);
+                                }
+                              }}
+                              className="border rounded p-2 w-full text-sm"
+                            >
+                              <option value="">選択してください</option>
+                              {registeredCompanies.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                              <option value="__new__">＋ 新しい会社名を追加</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 block mb-1">管理者</label>
+                            <select
+                              value={editManager}
+                              onChange={(e) => setEditManager(e.target.value)}
+                              className="border rounded p-2 w-full text-sm"
+                            >
+                              <option value="">選択してください</option>
+                              {workers.map((w) => (
+                                <option key={w} value={w}>{w}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </>
                       )}
                       <div className="flex gap-2">
                         <button
