@@ -161,6 +161,16 @@ export default function LendingPage() {
       return;
     }
 
+    const today = new Date().toISOString().slice(0, 10);
+    if (formPeriodStart < today) {
+      alert("使用期間（開始）に過去の日付は指定できません");
+      return;
+    }
+    if (formPeriodEnd < formPeriodStart) {
+      alert("使用期間（終了）は開始日以降を指定してください");
+      return;
+    }
+
     // 同じ貸出物の使用期間重複チェック
     const { data: existingRecords } = await supabase
       .from("lending_records")
@@ -427,6 +437,7 @@ export default function LendingPage() {
               <input
                 type="date"
                 value={formPeriodStart}
+                min={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setFormPeriodStart(e.target.value)}
                 className="border rounded p-2 w-full text-sm"
               />
@@ -437,6 +448,7 @@ export default function LendingPage() {
               <input
                 type="date"
                 value={formPeriodEnd}
+                min={formPeriodStart || new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setFormPeriodEnd(e.target.value)}
                 className="border rounded p-2 w-full text-sm"
               />
@@ -490,14 +502,21 @@ export default function LendingPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleRecords.map((r) => (
-                  <tr key={r.id} className={`border-b last:border-b-0 hover:bg-gray-50 ${r.returned ? "opacity-50" : ""}`}>
+                {[...visibleRecords].sort((a, b) => {
+                  const aOver = !a.returned && new Date().toISOString().slice(0, 10) > a.period_end ? 0 : 1;
+                  const bOver = !b.returned && new Date().toISOString().slice(0, 10) > b.period_end ? 0 : 1;
+                  return aOver - bOver;
+                }).map((r) => {
+                  const isOverdue = !r.returned && new Date().toISOString().slice(0, 10) > r.period_end;
+                  return (
+                  <tr key={r.id} className={`border-b last:border-b-0 ${r.returned ? "opacity-50 hover:bg-gray-50" : isOverdue ? "bg-red-50 hover:bg-red-100" : "hover:bg-gray-50"}`}>
                     <td className="py-2 pr-3 font-medium">{r.lending_items?.name}</td>
                     <td className="py-2 pr-3">{r.site_name}</td>
                     <td className="py-2 pr-3">{r.manager_name}</td>
                     <td className="py-2 pr-3 text-xs text-gray-500">{r.registrant_name}</td>
-                    <td className="py-2 pr-3 text-xs whitespace-nowrap">
+                    <td className={`py-2 pr-3 text-xs whitespace-nowrap ${isOverdue ? "text-red-600 font-bold" : ""}`}>
                       {formatDate(r.period_start)}～{formatDate(r.period_end)}
+                      {isOverdue && " ※返却期限超過"}
                     </td>
                     <td className="py-2 pr-3 text-xs text-gray-500 whitespace-nowrap">{formatDateTime(r.created_at)}</td>
                     {isAdmin && (
@@ -551,7 +570,8 @@ export default function LendingPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
