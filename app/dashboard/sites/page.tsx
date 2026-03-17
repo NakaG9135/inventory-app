@@ -27,6 +27,11 @@ export default function SitesPage() {
   const [searchSite, setSearchSite] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // 会社名マスタ管理
+  const [showCompanySection, setShowCompanySection] = useState(false);
+  const [editingCompanyOld, setEditingCompanyOld] = useState<string | null>(null);
+  const [editingCompanyNew, setEditingCompanyNew] = useState("");
+
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -165,6 +170,47 @@ export default function SitesPage() {
     fetchSites();
   };
 
+  // 会社名の編集（全テーブルの該当レコードを一括更新）
+  const handleRenameCompany = async (oldName: string) => {
+    const newName = editingCompanyNew.trim();
+    if (!newName || newName === oldName) { setEditingCompanyOld(null); return; }
+
+    const similar = registeredCompanies.filter((c) =>
+      c !== oldName && (c.toLowerCase().includes(newName.toLowerCase()) || newName.toLowerCase().includes(c.toLowerCase()))
+    );
+    if (similar.length > 0) {
+      if (!confirm(`類似の会社名があります:\n${similar.join("\n")}\n\nそのまま「${newName}」に変更しますか？`)) return;
+    }
+
+    if (!confirm(`会社名を「${oldName}」→「${newName}」に変更しますか？\n関連する全てのデータが更新されます。`)) return;
+
+    await Promise.all([
+      supabase.from("material_reserve_sites").update({ company_name: newName }).eq("company_name", oldName),
+      supabase.from("daily_reports").update({ company_name: newName }).eq("company_name", oldName),
+      supabase.from("inventory_logs").update({ company_name: newName }).eq("company_name", oldName),
+      supabase.from("lending_records").update({ company_name: newName }).eq("company_name", oldName),
+      supabase.from("site_details").update({ company_name: newName }).eq("company_name", oldName),
+    ]);
+
+    setEditingCompanyOld(null);
+    setEditingCompanyNew("");
+    fetchSites();
+  };
+
+  const handleDeleteCompany = async (name: string) => {
+    if (!confirm(`会社名「${name}」を削除しますか？\n関連する全てのデータから会社名が空欄になります。`)) return;
+
+    await Promise.all([
+      supabase.from("material_reserve_sites").update({ company_name: "" }).eq("company_name", name),
+      supabase.from("daily_reports").update({ company_name: "" }).eq("company_name", name),
+      supabase.from("inventory_logs").update({ company_name: "" }).eq("company_name", name),
+      supabase.from("lending_records").update({ company_name: "" }).eq("company_name", name),
+      supabase.from("site_details").update({ company_name: "" }).eq("company_name", name),
+    ]);
+
+    fetchSites();
+  };
+
   const filteredSites = sites.filter((s) =>
     !searchSite || s.siteName.toLowerCase().includes(searchSite.toLowerCase())
   );
@@ -172,6 +218,60 @@ export default function SitesPage() {
   return (
     <div className="p-6 max-w-4xl">
       <h1 className="text-xl font-bold mb-6">現場リスト</h1>
+
+      {/* Admin: 会社名マスタ管理 */}
+      {currentUserRole === "admin" && (
+        <section className="bg-white border rounded-lg mb-6">
+          <button
+            onClick={() => setShowCompanySection(!showCompanySection)}
+            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 rounded-lg"
+          >
+            <h2 className="text-sm font-semibold text-gray-500">会社名マスタ管理</h2>
+            <span className="text-lg text-gray-400">{showCompanySection ? "▲ 閉じる" : "▼ 開く"}</span>
+          </button>
+          {showCompanySection && (
+            <div className="px-4 pb-4">
+              {registeredCompanies.length === 0 ? (
+                <p className="text-gray-400 text-sm">登録されている会社名がありません</p>
+              ) : (
+                <div className="space-y-1">
+                  {registeredCompanies.map((c) => (
+                    <div key={c} className="flex items-center gap-2 py-1.5 border-b last:border-b-0">
+                      {editingCompanyOld === c ? (
+                        <>
+                          <input
+                            type="text"
+                            value={editingCompanyNew}
+                            onChange={(e) => setEditingCompanyNew(e.target.value)}
+                            className="border rounded p-1 flex-1 min-w-0 text-sm"
+                          />
+                          <button onClick={() => handleRenameCompany(c)} className="text-blue-500 text-xs shrink-0">保存</button>
+                          <button onClick={() => setEditingCompanyOld(null)} className="text-gray-400 text-xs shrink-0">取消</button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-sm">{c}</span>
+                          <span className="text-xs text-gray-400 shrink-0">
+                            {sites.filter((s) => s.companyName === c).length}現場
+                          </span>
+                          <button
+                            onClick={() => { setEditingCompanyOld(c); setEditingCompanyNew(c); }}
+                            className="text-blue-500 text-xs shrink-0"
+                          >編集</button>
+                          <button
+                            onClick={() => handleDeleteCompany(c)}
+                            className="text-red-400 text-xs shrink-0"
+                          >削除</button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* 検索 */}
       <div className="mb-4">
