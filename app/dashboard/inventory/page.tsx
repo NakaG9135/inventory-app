@@ -30,6 +30,7 @@ export default function InventoryPage() {
   const [searchDetail, setSearchDetail] = useState("");
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
   const [siteCompanyMap, setSiteCompanyMap] = useState<Record<string, string>>({});
+  const [registeredCompanies, setRegisteredCompanies] = useState<string[]>([]);
   const [opModal, setOpModal] = useState<OpModal | null>(null);
   const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -61,6 +62,7 @@ export default function InventoryPage() {
     const map: Record<string, string> = {};
     allEntries.forEach((d: any) => { if (d.site_name && d.company_name) map[d.site_name] = d.company_name; });
     setSiteCompanyMap(map);
+    setRegisteredCompanies([...new Set(Object.values(map))].filter(Boolean).sort());
   };
 
   const fetchWorkers = async () => {
@@ -486,32 +488,33 @@ export default function InventoryPage() {
             </div>
 
             {/* 会社名入力 */}
-            <div className="mb-4 relative">
+            <div className="mb-4">
               <label className="text-xs text-gray-500 mb-1 block">会社名</label>
-              <input
-                type="text"
-                placeholder="会社名を入力"
+              <select
                 value={opModal.companyName}
-                autoComplete="off"
-                onChange={(e) => setOpModal((p) => p && { ...p, companyName: e.target.value })}
-                onFocus={() => setOpModal((p) => p && { ...p, siteConfirmPending: false })}
+                onChange={(e) => {
+                  if (e.target.value === "__new__") {
+                    const name = prompt("新しい会社名を入力してください");
+                    if (name && name.trim()) {
+                      const exists = registeredCompanies.find((c) => c === name.trim());
+                      if (exists) { setOpModal((p) => p && { ...p, companyName: exists }); }
+                      else if (confirm(`「${name.trim()}」を新しい会社名として登録しますか？`)) {
+                        setOpModal((p) => p && { ...p, companyName: name.trim() });
+                        setRegisteredCompanies((prev) => [...prev, name.trim()].sort());
+                      }
+                    }
+                  } else {
+                    setOpModal((p) => p && { ...p, companyName: e.target.value });
+                  }
+                }}
                 className="border rounded p-2 w-full text-sm"
-              />
-              {opModal.companyName.trim() && (() => {
-                const companies = [...new Set(Object.values(siteCompanyMap))].filter((c) =>
-                  c.toLowerCase().includes(opModal.companyName.trim().toLowerCase()) && c !== opModal.companyName
-                );
-                return companies.length > 0 ? (
-                  <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-32 overflow-y-auto mt-1">
-                    {companies.map((c) => (
-                      <li key={c}>
-                        <button onClick={() => setOpModal((p) => p && { ...p, companyName: c })}
-                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50">{c}</button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null;
-              })()}
+              >
+                <option value="">選択してください</option>
+                {registeredCompanies.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+                <option value="__new__">＋ 新しい会社名を追加</option>
+              </select>
             </div>
 
             {/* 現場名入力 */}

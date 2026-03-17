@@ -69,7 +69,7 @@ function ReportForm() {
   const [groupKeyCounter, setGroupKeyCounter] = useState(1);
 
   const [showSiteSuggest, setShowSiteSuggest] = useState(false);
-  const [showCompanySuggest, setShowCompanySuggest] = useState(false);
+  const [registeredCompanies, setRegisteredCompanies] = useState<string[]>([]);
 
   // 新規現場登録
   const [siteManagerModal, setSiteManagerModal] = useState(false);
@@ -105,6 +105,7 @@ function ReportForm() {
         if (d.site_name && d.company_name) map[d.site_name] = d.company_name;
       });
       setSiteCompanyMap(map);
+      setRegisteredCompanies([...new Set(Object.values(map))].filter(Boolean).sort());
     };
     const fetchRosterWorkers = async () => {
       const { data } = await supabase
@@ -574,29 +575,31 @@ function ReportForm() {
       <section className="bg-white border rounded-lg p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">基本情報</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="relative">
+          <div>
             <label className="text-xs text-gray-500 block mb-1">会社名</label>
-            <input type="text" value={companyName}
-              onChange={(e) => { setCompanyName(e.target.value); setShowCompanySuggest(true); }}
-              onFocus={() => setShowCompanySuggest(true)}
-              onBlur={() => setTimeout(() => setShowCompanySuggest(false), 150)}
-              placeholder="会社名を入力" autoComplete="off"
-              className="border rounded p-2 w-full" />
-            {showCompanySuggest && companyName.trim() && (() => {
-              const companies = [...new Set(Object.values(siteCompanyMap))].filter((c) =>
-                c.toLowerCase().includes(companyName.trim().toLowerCase())
-              );
-              return companies.length > 0 ? (
-                <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
-                  {companies.map((c) => (
-                    <li key={c}>
-                      <button onMouseDown={() => { setCompanyName(c); setShowCompanySuggest(false); }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50">{c}</button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null;
-            })()}
+            <select value={companyName}
+              onChange={(e) => {
+                if (e.target.value === "__new__") {
+                  const name = prompt("新しい会社名を入力してください");
+                  if (name && name.trim()) {
+                    const exists = registeredCompanies.find((c) => c === name.trim());
+                    if (exists) { setCompanyName(exists); }
+                    else if (confirm(`「${name.trim()}」を新しい会社名として登録しますか？`)) {
+                      setCompanyName(name.trim());
+                      setRegisteredCompanies((prev) => [...prev, name.trim()].sort());
+                    }
+                  }
+                } else {
+                  setCompanyName(e.target.value);
+                }
+              }}
+              className="border rounded p-2 w-full">
+              <option value="">選択してください</option>
+              {registeredCompanies.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+              <option value="__new__">＋ 新しい会社名を追加</option>
+            </select>
           </div>
           <div className="relative">
             <label className="text-xs text-gray-500 block mb-1">現場名 *</label>
