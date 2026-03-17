@@ -55,10 +55,10 @@ export default function LoginPage() {
       return;
     }
 
-    // 成功したらリセット＋最終ログイン日時を記録
+    // 成功したらリセット
     await supabase
       .from("users_profile")
-      .update({ failed_attempts: 0, last_login_at: new Date().toISOString() })
+      .update({ failed_attempts: 0 })
       .eq("email", email);
 
     router.push("/dashboard");

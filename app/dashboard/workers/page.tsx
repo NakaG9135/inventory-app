@@ -38,13 +38,17 @@ export default function WorkersPage() {
     setLoading(true);
 
     // role='user' の作業員一覧
-    const { data: profiles, error } = await supabase
-      .from("users_profile")
-      .select("id, name, last_login_at")
-      .eq("role", "user")
-      .order("name");
+    const [{ data: profiles, error }, { data: signInData }] = await Promise.all([
+      supabase.from("users_profile").select("id, name").eq("role", "user").order("name"),
+      supabase.rpc("get_users_last_sign_in"),
+    ]);
 
     if (error || !profiles) { setLoading(false); return; }
+
+    const signInMap: Record<string, string> = {};
+    (signInData || []).forEach((d: any) => {
+      if (d.user_id && d.last_sign_in_at) signInMap[d.user_id] = d.last_sign_in_at;
+    });
 
     // 確定済み日報の現場名・作業員リストを一括取得
     const { data: reports } = await supabase
@@ -55,7 +59,7 @@ export default function WorkersPage() {
     const reportList = (reports || []) as { site_name: string; workers: string[] }[];
 
     // 各作業員が登場した現場名を抽出
-    const workersWithSites: WorkerProfile[] = profiles.map((p: { id: string; name: string; last_login_at: string | null }) => {
+    const workersWithSites: WorkerProfile[] = profiles.map((p: { id: string; name: string }) => {
       const sites = [
         ...new Set(
           reportList
@@ -64,7 +68,7 @@ export default function WorkersPage() {
             .filter(Boolean)
         ),
       ].sort((a, b) => a.localeCompare(b, "ja"));
-      return { id: p.id, name: p.name, sites, lastLoginAt: p.last_login_at };
+      return { id: p.id, name: p.name, sites, lastLoginAt: signInMap[p.id] || null };
     });
 
     setWorkers(workersWithSites);
