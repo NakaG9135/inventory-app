@@ -98,8 +98,8 @@ export default function InventoryPage() {
       return;
     }
 
-    // 既存現場に会社名がなければ追記
-    if (opModal.companyName.trim() && !existingSite.company_name) {
+    // 既存現場に会社名がなければ追記（既に別の会社名がある場合は上書きしない）
+    if (opModal.companyName.trim() && (!existingSite.company_name || existingSite.company_name === opModal.companyName.trim())) {
       await supabase.from("material_reserve_sites")
         .update({ company_name: opModal.companyName.trim() })
         .eq("id", existingSite.id);
@@ -486,7 +486,7 @@ export default function InventoryPage() {
             </div>
 
             {/* 会社名入力 */}
-            <div className="mb-4">
+            <div className="mb-4 relative">
               <label className="text-xs text-gray-500 mb-1 block">会社名</label>
               <input
                 type="text"
@@ -494,8 +494,24 @@ export default function InventoryPage() {
                 value={opModal.companyName}
                 autoComplete="off"
                 onChange={(e) => setOpModal((p) => p && { ...p, companyName: e.target.value })}
+                onFocus={() => setOpModal((p) => p && { ...p, siteConfirmPending: false })}
                 className="border rounded p-2 w-full text-sm"
               />
+              {opModal.companyName.trim() && (() => {
+                const companies = [...new Set(Object.values(siteCompanyMap))].filter((c) =>
+                  c.toLowerCase().includes(opModal.companyName.trim().toLowerCase()) && c !== opModal.companyName
+                );
+                return companies.length > 0 ? (
+                  <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-32 overflow-y-auto mt-1">
+                    {companies.map((c) => (
+                      <li key={c}>
+                        <button onClick={() => setOpModal((p) => p && { ...p, companyName: c })}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50">{c}</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null;
+              })()}
             </div>
 
             {/* 現場名入力 */}
@@ -506,7 +522,18 @@ export default function InventoryPage() {
                 placeholder="現場名を入力"
                 value={opModal.siteName}
                 autoComplete="off"
-                onChange={(e) => setOpModal((p) => p && { ...p, siteName: e.target.value, siteConfirmPending: false })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setOpModal((p) => p && { ...p, siteName: val, siteConfirmPending: false });
+                  if (siteCompanyMap[val] && !opModal.companyName.trim()) {
+                    setOpModal((p) => p && { ...p, siteName: val, companyName: siteCompanyMap[val], siteConfirmPending: false });
+                  }
+                }}
+                onBlur={() => {
+                  if (siteCompanyMap[opModal.siteName.trim()] && !opModal.companyName.trim()) {
+                    setOpModal((p) => p && { ...p, companyName: siteCompanyMap[opModal.siteName.trim()] });
+                  }
+                }}
                 className="border rounded p-2 w-full text-sm"
               />
 

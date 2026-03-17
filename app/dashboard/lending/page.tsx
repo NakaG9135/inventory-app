@@ -54,8 +54,9 @@ export default function LendingPage() {
   const [searchManager, setSearchManager] = useState("");
   const [searchMasterItem, setSearchMasterItem] = useState("");
 
-  // 現場名サジェスト
+  // 現場名・会社名サジェスト
   const [showSiteSuggest, setShowSiteSuggest] = useState(false);
+  const [showCompanySuggest, setShowCompanySuggest] = useState(false);
 
   // 貸出物管理セクション開閉
   const [showItemSection, setShowItemSection] = useState(false);
@@ -245,7 +246,7 @@ export default function LendingPage() {
         site_name: formSiteName.trim(),
         manager_name: formManager,
       });
-    } else if (formCompanyName.trim() && !existingSite.company_name) {
+    } else if (formCompanyName.trim() && (!existingSite.company_name || existingSite.company_name === formCompanyName.trim())) {
       await supabase.from("material_reserve_sites")
         .update({ company_name: formCompanyName.trim() })
         .eq("id", existingSite.id);
@@ -441,12 +442,29 @@ export default function LendingPage() {
               </select>
             </div>
 
-            <div>
+            <div className="relative">
               <label className="text-xs text-gray-500 block mb-1">会社名</label>
               <input type="text" value={formCompanyName}
-                onChange={(e) => setFormCompanyName(e.target.value)}
+                onChange={(e) => { setFormCompanyName(e.target.value); setShowCompanySuggest(true); }}
+                onFocus={() => setShowCompanySuggest(true)}
+                onBlur={() => setTimeout(() => setShowCompanySuggest(false), 150)}
                 placeholder="会社名を入力" autoComplete="off"
                 className="border rounded p-2 w-full text-sm" />
+              {showCompanySuggest && formCompanyName.trim() && (() => {
+                const companies = [...new Set(Object.values(siteCompanyMap))].filter((c) =>
+                  c.toLowerCase().includes(formCompanyName.trim().toLowerCase()) && c !== formCompanyName
+                );
+                return companies.length > 0 ? (
+                  <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-32 overflow-y-auto mt-1">
+                    {companies.map((c) => (
+                      <li key={c}>
+                        <button onMouseDown={() => { setFormCompanyName(c); setShowCompanySuggest(false); }}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50">{c}</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null;
+              })()}
             </div>
 
             <div className="relative">
@@ -454,9 +472,17 @@ export default function LendingPage() {
               <input
                 type="text"
                 value={formSiteName}
-                onChange={(e) => { setFormSiteName(e.target.value); setShowSiteSuggest(true); }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormSiteName(val);
+                  setShowSiteSuggest(true);
+                  if (siteCompanyMap[val] && !formCompanyName.trim()) setFormCompanyName(siteCompanyMap[val]);
+                }}
                 onFocus={() => setShowSiteSuggest(true)}
-                onBlur={() => setTimeout(() => setShowSiteSuggest(false), 150)}
+                onBlur={() => {
+                  setTimeout(() => setShowSiteSuggest(false), 150);
+                  if (siteCompanyMap[formSiteName.trim()] && !formCompanyName.trim()) setFormCompanyName(siteCompanyMap[formSiteName.trim()]);
+                }}
                 placeholder="現場名を入力"
                 autoComplete="off"
                 className="border rounded p-2 w-full text-sm"

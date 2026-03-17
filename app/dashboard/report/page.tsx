@@ -69,6 +69,7 @@ function ReportForm() {
   const [groupKeyCounter, setGroupKeyCounter] = useState(1);
 
   const [showSiteSuggest, setShowSiteSuggest] = useState(false);
+  const [showCompanySuggest, setShowCompanySuggest] = useState(false);
 
   // 新規現場登録
   const [siteManagerModal, setSiteManagerModal] = useState(false);
@@ -368,8 +369,8 @@ function ReportForm() {
       return false; // 処理を中断し、モーダルのcallbackで再開
     }
 
-    // 既存現場に会社名がなく、今回入力されていれば追記
-    if (companyName.trim() && !existing.company_name) {
+    // 既存現場に会社名がなければ追記（既に別の会社名がある場合は上書きしない）
+    if (companyName.trim() && (!existing.company_name || existing.company_name === companyName.trim())) {
       await supabase.from("material_reserve_sites")
         .update({ company_name: companyName.trim() })
         .eq("id", existing.id);
@@ -573,19 +574,50 @@ function ReportForm() {
       <section className="bg-white border rounded-lg p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">基本情報</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
+          <div className="relative">
             <label className="text-xs text-gray-500 block mb-1">会社名</label>
             <input type="text" value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
+              onChange={(e) => { setCompanyName(e.target.value); setShowCompanySuggest(true); }}
+              onFocus={() => setShowCompanySuggest(true)}
+              onBlur={() => setTimeout(() => setShowCompanySuggest(false), 150)}
               placeholder="会社名を入力" autoComplete="off"
               className="border rounded p-2 w-full" />
+            {showCompanySuggest && companyName.trim() && (() => {
+              const companies = [...new Set(Object.values(siteCompanyMap))].filter((c) =>
+                c.toLowerCase().includes(companyName.trim().toLowerCase())
+              );
+              return companies.length > 0 ? (
+                <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
+                  {companies.map((c) => (
+                    <li key={c}>
+                      <button onMouseDown={() => { setCompanyName(c); setShowCompanySuggest(false); }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50">{c}</button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null;
+            })()}
           </div>
           <div className="relative">
             <label className="text-xs text-gray-500 block mb-1">現場名 *</label>
             <input type="text" value={siteName}
-              onChange={(e) => { setSiteName(e.target.value); setShowSiteSuggest(true); }}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSiteName(val);
+                setShowSiteSuggest(true);
+                // 完全一致の場合、会社名を自動入力
+                if (siteCompanyMap[val] && !companyName.trim()) {
+                  setCompanyName(siteCompanyMap[val]);
+                }
+              }}
               onFocus={() => setShowSiteSuggest(true)}
-              onBlur={() => setTimeout(() => setShowSiteSuggest(false), 150)}
+              onBlur={() => {
+                setTimeout(() => setShowSiteSuggest(false), 150);
+                // blur時にも完全一致チェック
+                if (siteCompanyMap[siteName.trim()] && !companyName.trim()) {
+                  setCompanyName(siteCompanyMap[siteName.trim()]);
+                }
+              }}
               placeholder="現場名を入力" autoComplete="off"
               className="border rounded p-2 w-full" />
             {showSiteSuggest && siteName.trim() && (() => {
