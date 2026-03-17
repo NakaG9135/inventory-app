@@ -121,6 +121,24 @@ export default function InventoryPage() {
     }
     const plannedDate = `${plannedYear}-${plannedMonth.padStart(2, "0")}${plannedDay ? "-" + plannedDay.padStart(2, "0") : ""}`;
 
+    // 過去日チェック
+    const now = new Date();
+    if (plannedDay) {
+      const inputDate = new Date(Number(plannedYear), Number(plannedMonth) - 1, Number(plannedDay));
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (inputDate < today) {
+        alert("使用予定日に過去の日付は指定できません");
+        return;
+      }
+    } else {
+      const inputMonth = new Date(Number(plannedYear), Number(plannedMonth) - 1, 1);
+      const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      if (inputMonth < currentMonth) {
+        alert("使用予定日に過去の年月は指定できません");
+        return;
+      }
+    }
+
     const { data: userData } = await supabase.auth.getUser();
     if (!userData?.user) {
       alert("ログインしてください");
