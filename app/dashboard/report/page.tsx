@@ -66,6 +66,12 @@ function ReportForm() {
   const [newItemUnit, setNewItemUnit] = useState("");
   const [groupKeyCounter, setGroupKeyCounter] = useState(1);
 
+  // 新規現場登録
+  const [siteManagerModal, setSiteManagerModal] = useState(false);
+  const [siteManagerName, setSiteManagerName] = useState("");
+  const [allWorkers, setAllWorkers] = useState<string[]>([]);
+  const [pendingSubmitType, setPendingSubmitType] = useState<"draft" | "confirmed" | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
@@ -77,14 +83,17 @@ function ReportForm() {
       if (data) setInventoryItems(data as InventoryItem[]);
     };
     const fetchSites = async () => {
-      const { data } = await supabase
-        .from("inventory_logs")
-        .select("site_name")
-        .not("site_name", "is", null);
-      if (data) {
-        const unique = [...new Set(data.map((d: any) => d.site_name).filter(Boolean))] as string[];
-        setPastSiteNames(unique);
-      }
+      const [logs, reports, reserves] = await Promise.all([
+        supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
+        supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
+        supabase.from("material_reserve_sites").select("site_name"),
+      ]);
+      const all = [
+        ...(logs.data || []).map((d: any) => d.site_name),
+        ...(reports.data || []).map((d: any) => d.site_name),
+        ...(reserves.data || []).map((d: any) => d.site_name),
+      ].filter(Boolean);
+      setPastSiteNames([...new Set(all)] as string[]);
     };
     const fetchRosterWorkers = async () => {
       const { data } = await supabase
@@ -98,10 +107,15 @@ function ReportForm() {
       const { data } = await supabase.from("vehicles").select("number").order("created_at");
       if (data) setRegisteredVehicles(data.map((d: any) => d.number));
     };
+    const fetchAllWorkers = async () => {
+      const { data } = await supabase.from("users_profile").select("name").order("name");
+      if (data) setAllWorkers(data.map((d: any) => d.name));
+    };
     fetchInventory();
     fetchSites();
     fetchRosterWorkers();
     fetchVehicles();
+    fetchAllWorkers();
   }, []);
 
   // 下書き読み込み
@@ -294,6 +308,12 @@ function ReportForm() {
   // 一時保存（在庫処理なし）
   const handleSaveDraft = async () => {
     if (!siteName.trim()) { alert("現場名を入力してください"); return; }
+    const siteOk = await checkAndRegisterSite("draft");
+    if (!siteOk) return;
+    doSaveDraft();
+  };
+
+  const doSaveDraft = async () => {
     setSaving(true);
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) { alert("ログインしてください"); setSaving(false); return; }
@@ -317,6 +337,46 @@ function ReportForm() {
     setDone(true);
   };
 
+  // 現場リスト照合
+  const checkAndRegisterSite = async (type: "draft" | "confirmed"): Promise<boolean> => {
+    const name = siteName.trim();
+    if (!name) return true;
+
+    const { data: existing } = await supabase
+      .from("material_reserve_sites")
+      .select("id")
+      .eq("site_name", name)
+      .single();
+
+    if (!existing) {
+      // 新規現場 → 管理者選択モーダル
+      setPendingSubmitType(type);
+      setSiteManagerName("");
+      setSiteManagerModal(true);
+      return false; // 処理を中断し、モーダルのcallbackで再開
+    }
+    return true;
+  };
+
+  const handleSiteManagerConfirm = async () => {
+    if (!siteManagerName.trim()) {
+      alert("管理者を選択してください");
+      return;
+    }
+    await supabase.from("material_reserve_sites").insert({
+      site_name: siteName.trim(),
+      manager_name: siteManagerName.trim(),
+    });
+    setSiteManagerModal(false);
+
+    if (pendingSubmitType === "confirmed") {
+      doSubmit();
+    } else if (pendingSubmitType === "draft") {
+      doSaveDraft();
+    }
+    setPendingSubmitType(null);
+  };
+
   // 本登録（在庫出庫処理あり）
   const handleSubmit = async () => {
     if (!siteName.trim()) { alert("現場名を入力してください"); return; }
@@ -334,6 +394,14 @@ function ReportForm() {
       if (!confirm(`以下の商品は在庫一覧に新規登録されたものです:\n${list}\n\nこのまま登録しますか？`)) return;
     }
 
+    // 現場リスト照合
+    const siteOk = await checkAndRegisterSite("confirmed");
+    if (!siteOk) return;
+
+    doSubmit();
+  };
+
+  const doSubmit = async () => {
     setSubmitting(true);
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -769,6 +837,39 @@ function ReportForm() {
                 登録
               </button>
               <button onClick={() => setNewItemModal(null)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm">
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新規現場 管理者選択モーダル */}
+      {siteManagerModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-sm font-bold mb-1">新規現場の登録</h3>
+            <p className="text-xs text-gray-500 mb-4">「{siteName.trim()}」は現場リストに未登録です。管理者を選択して登録してください。</p>
+            <div className="mb-4">
+              <label className="text-xs text-gray-500 block mb-1">管理者 *</label>
+              <select
+                value={siteManagerName}
+                onChange={(e) => setSiteManagerName(e.target.value)}
+                className="border rounded p-2 w-full text-sm"
+              >
+                <option value="">選択してください</option>
+                {allWorkers.map((w) => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleSiteManagerConfirm}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold">
+                登録して続行
+              </button>
+              <button onClick={() => { setSiteManagerModal(false); setPendingSubmitType(null); }}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm">
                 キャンセル
               </button>

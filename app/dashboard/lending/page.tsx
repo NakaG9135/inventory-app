@@ -199,6 +199,20 @@ export default function LendingPage() {
       if (!confirm(msg)) return;
     }
 
+    // 現場リスト照合 → 未登録なら登録
+    const { data: existingSite } = await supabase
+      .from("material_reserve_sites")
+      .select("id")
+      .eq("site_name", formSiteName.trim())
+      .single();
+
+    if (!existingSite) {
+      await supabase.from("material_reserve_sites").insert({
+        site_name: formSiteName.trim(),
+        manager_name: formManager,
+      });
+    }
+
     const { error } = await supabase.from("lending_records").insert({
       lending_item_id: formItemId,
       site_name: formSiteName.trim(),

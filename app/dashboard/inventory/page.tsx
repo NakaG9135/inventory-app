@@ -69,7 +69,44 @@ export default function InventoryPage() {
     fetchWorkers();
   }, []);
 
+  const [ioManagerModal, setIoManagerModal] = useState<{ change: number } | null>(null);
+  const [ioManagerName, setIoManagerName] = useState("");
+
   const updateQuantity = async (change: number) => {
+    if (!opModal) return;
+    const { itemId, quantity, siteName } = opModal;
+    if (quantity <= 0 || !siteName.trim()) return;
+
+    // 現場リスト照合
+    const { data: existingSite } = await supabase
+      .from("material_reserve_sites")
+      .select("id")
+      .eq("site_name", siteName.trim())
+      .single();
+
+    if (!existingSite) {
+      setIoManagerName("");
+      setIoManagerModal({ change });
+      return;
+    }
+
+    await doUpdateQuantity(change);
+  };
+
+  const handleIoManagerConfirm = async () => {
+    if (!ioManagerName.trim()) {
+      alert("管理者を選択してください");
+      return;
+    }
+    await supabase.from("material_reserve_sites").insert({
+      site_name: opModal!.siteName.trim(),
+      manager_name: ioManagerName.trim(),
+    });
+    setIoManagerModal(null);
+    await doUpdateQuantity(ioManagerModal!.change);
+  };
+
+  const doUpdateQuantity = async (change: number) => {
     if (!opModal) return;
     const { itemId, quantity, siteName } = opModal;
     if (quantity <= 0 || !siteName.trim()) return;
@@ -341,6 +378,44 @@ export default function InventoryPage() {
               </button>
               <button
                 onClick={() => setManagerModal(null)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 入出庫 新規現場 管理者選択モーダル */}
+      {ioManagerModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h2 className="text-base font-bold mb-3">新しい現場の管理者を選択</h2>
+            <p className="text-sm text-gray-600 mb-3">
+              現場名: <span className="font-bold">{opModal?.siteName}</span>
+            </p>
+            <label className="text-xs text-gray-500 mb-1 block">管理者</label>
+            <select
+              value={ioManagerName}
+              onChange={(e) => setIoManagerName(e.target.value)}
+              className="border rounded p-2 w-full text-sm mb-4"
+            >
+              <option value="">選択してください</option>
+              {workers.map((w) => (
+                <option key={w.id} value={w.name}>{w.name}</option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <button
+                onClick={handleIoManagerConfirm}
+                disabled={!ioManagerName.trim()}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                確定
+              </button>
+              <button
+                onClick={() => setIoManagerModal(null)}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm"
               >
                 キャンセル
