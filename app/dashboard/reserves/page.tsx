@@ -75,10 +75,10 @@ export default function ReservesPage() {
         .eq("site_id", site.id)
         .order("updated_at", { ascending: false });
 
-      sitesWithItems.push({
-        ...site,
-        items: (itemsData || []) as ReserveItem[],
-      });
+      const items = (itemsData || []) as ReserveItem[];
+      if (items.length > 0) {
+        sitesWithItems.push({ ...site, items });
+      }
     }
     setSites(sitesWithItems);
   };
