@@ -232,10 +232,10 @@ export default function LendingPage() {
       if (!confirm(msg)) return;
     }
 
-    // 現場リスト照合 → 未登録なら登録
+    // 現場リスト照合 → 未登録なら登録、会社名なければ追記
     const { data: existingSite } = await supabase
       .from("material_reserve_sites")
-      .select("id")
+      .select("id, company_name")
       .eq("site_name", formSiteName.trim())
       .single();
 
@@ -245,6 +245,10 @@ export default function LendingPage() {
         site_name: formSiteName.trim(),
         manager_name: formManager,
       });
+    } else if (formCompanyName.trim() && !existingSite.company_name) {
+      await supabase.from("material_reserve_sites")
+        .update({ company_name: formCompanyName.trim() })
+        .eq("id", existingSite.id);
     }
 
     const { error } = await supabase.from("lending_records").insert({

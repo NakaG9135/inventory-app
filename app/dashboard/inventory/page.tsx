@@ -88,7 +88,7 @@ export default function InventoryPage() {
     // 現場リスト照合
     const { data: existingSite } = await supabase
       .from("material_reserve_sites")
-      .select("id")
+      .select("id, company_name")
       .eq("site_name", siteName.trim())
       .single();
 
@@ -96,6 +96,13 @@ export default function InventoryPage() {
       setIoManagerName("");
       setIoManagerModal({ change });
       return;
+    }
+
+    // 既存現場に会社名がなければ追記
+    if (opModal.companyName.trim() && !existingSite.company_name) {
+      await supabase.from("material_reserve_sites")
+        .update({ company_name: opModal.companyName.trim() })
+        .eq("id", existingSite.id);
     }
 
     await doUpdateQuantity(change);

@@ -356,7 +356,7 @@ function ReportForm() {
 
     const { data: existing } = await supabase
       .from("material_reserve_sites")
-      .select("id")
+      .select("id, company_name")
       .eq("site_name", name)
       .single();
 
@@ -366,6 +366,13 @@ function ReportForm() {
       setSiteManagerName("");
       setSiteManagerModal(true);
       return false; // 処理を中断し、モーダルのcallbackで再開
+    }
+
+    // 既存現場に会社名がなく、今回入力されていれば追記
+    if (companyName.trim() && !existing.company_name) {
+      await supabase.from("material_reserve_sites")
+        .update({ company_name: companyName.trim() })
+        .eq("id", existing.id);
     }
     return true;
   };
