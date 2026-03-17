@@ -50,6 +50,9 @@ export default function ReportLogsPage() {
   const [exportDateTo, setExportDateTo] = useState("");
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
   const [showExportSiteSuggest, setShowExportSiteSuggest] = useState(false);
+  const [registeredCompanies, setRegisteredCompanies] = useState<string[]>([]);
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [editingCompanyValue, setEditingCompanyValue] = useState("");
 
   useEffect(() => {
     const checkRole = async () => {
@@ -62,16 +65,14 @@ export default function ReportLogsPage() {
     checkRole();
     const fetchSiteNames = async () => {
       const [logs, reports, reserves] = await Promise.all([
-        supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
-        supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
-        supabase.from("material_reserve_sites").select("site_name"),
+        supabase.from("inventory_logs").select("site_name, company_name").not("site_name", "is", null),
+        supabase.from("daily_reports").select("site_name, company_name").not("site_name", "is", null),
+        supabase.from("material_reserve_sites").select("site_name, company_name"),
       ]);
-      const all = [
-        ...(logs.data || []).map((d: any) => d.site_name),
-        ...(reports.data || []).map((d: any) => d.site_name),
-        ...(reserves.data || []).map((d: any) => d.site_name),
-      ].filter(Boolean);
-      setPastSiteNames([...new Set(all)] as string[]);
+      const allEntries = [...(logs.data || []), ...(reports.data || []), ...(reserves.data || [])].filter((d: any) => d.site_name);
+      setPastSiteNames([...new Set(allEntries.map((d: any) => d.site_name))] as string[]);
+      const companies = [...new Set(allEntries.map((d: any) => d.company_name).filter(Boolean))] as string[];
+      setRegisteredCompanies(companies.sort());
     };
     fetchSiteNames();
   }, []);
@@ -146,6 +147,14 @@ export default function ReportLogsPage() {
   useEffect(() => {
     fetchReports();
   }, []);
+
+  // --- 会社名編集 ---
+  const handleSaveCompany = async (reportId: string) => {
+    await supabase.from("daily_reports").update({ company_name: editingCompanyValue }).eq("id", reportId);
+    setEditingCompanyId(null);
+    setEditingCompanyValue("");
+    fetchReports();
+  };
 
   // --- Excel出力 ---
 
@@ -455,12 +464,52 @@ export default function ReportLogsPage() {
 
                     {/* 基本情報 */}
                     <div className="space-y-2">
-                      {report.company_name && (
-                        <div>
-                          <span className="text-xs text-gray-400 block">会社名</span>
-                          <span>{report.company_name}</span>
-                        </div>
-                      )}
+                      <div>
+                        <span className="text-xs text-gray-400 block">会社名</span>
+                        {isAdmin && editingCompanyId === report.id ? (
+                          <div className="flex gap-1 items-center mt-1">
+                            <select
+                              value={editingCompanyValue}
+                              onChange={(e) => {
+                                if (e.target.value === "__new__") {
+                                  const name = prompt("新しい会社名を入力してください");
+                                  if (name && name.trim()) {
+                                    const exists = registeredCompanies.find((c) => c === name.trim());
+                                    if (exists) { setEditingCompanyValue(exists); }
+                                    else if (confirm(`「${name.trim()}」を新しい会社名として登録しますか？`)) {
+                                      setEditingCompanyValue(name.trim());
+                                      setRegisteredCompanies((prev) => [...prev, name.trim()].sort());
+                                    }
+                                  }
+                                } else {
+                                  setEditingCompanyValue(e.target.value);
+                                }
+                              }}
+                              className="border rounded p-1 text-sm flex-1 min-w-0"
+                            >
+                              <option value="">選択してください</option>
+                              {registeredCompanies.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                              <option value="__new__">＋ 新しい会社名を追加</option>
+                            </select>
+                            <button onClick={() => handleSaveCompany(report.id)}
+                              className="text-blue-500 text-xs shrink-0">保存</button>
+                            <button onClick={() => setEditingCompanyId(null)}
+                              className="text-gray-400 text-xs shrink-0">取消</button>
+                          </div>
+                        ) : (
+                          <span>
+                            {report.company_name || "未登録"}
+                            {isAdmin && (
+                              <button
+                                onClick={() => { setEditingCompanyId(report.id); setEditingCompanyValue(report.company_name || ""); }}
+                                className="text-blue-500 text-xs ml-2"
+                              >編集</button>
+                            )}
+                          </span>
+                        )}
+                      </div>
                       <div>
                         <span className="text-xs text-gray-400 block">現場名</span>
                         <span className="font-semibold">{report.site_name}</span>
