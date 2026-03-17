@@ -161,6 +161,27 @@ export default function LendingPage() {
       return;
     }
 
+    // 同じ貸出物の使用期間重複チェック
+    const { data: existingRecords } = await supabase
+      .from("lending_records")
+      .select("*, lending_items(name)")
+      .eq("lending_item_id", formItemId)
+      .eq("returned", false);
+
+    if (existingRecords && existingRecords.length > 0) {
+      const overlapping = existingRecords.filter((r: any) =>
+        formPeriodStart <= r.period_end && formPeriodEnd >= r.period_start
+      );
+      if (overlapping.length > 0) {
+        const itemName = overlapping[0].lending_items?.name || "";
+        const details = overlapping.map((r: any) =>
+          `${r.site_name}（${r.period_start}～${r.period_end}）`
+        ).join("\n");
+        alert(`「${itemName}」は以下の期間で貸出中のため登録できません:\n${details}`);
+        return;
+      }
+    }
+
     // 類似現場名チェック
     const similar = pastSiteNames.filter((s) => s !== formSiteName.trim() && isFuzzyMatch(s, formSiteName.trim()));
     if (similar.length > 0) {
