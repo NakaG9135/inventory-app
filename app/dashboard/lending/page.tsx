@@ -161,6 +161,11 @@ export default function LendingPage() {
       return;
     }
 
+    const today = new Date().toISOString().slice(0, 10);
+    if (formPeriodStart < today) {
+      alert("使用期間（開始）に過去の日付は指定できません");
+      return;
+    }
     if (formPeriodEnd < formPeriodStart) {
       alert("使用期間（終了）は開始日以降を指定してください");
       return;
@@ -476,6 +481,7 @@ export default function LendingPage() {
               <input
                 type="date"
                 value={formPeriodStart}
+                min={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setFormPeriodStart(e.target.value)}
                 className="border rounded p-2 w-full text-sm"
               />
@@ -486,7 +492,7 @@ export default function LendingPage() {
               <input
                 type="date"
                 value={formPeriodEnd}
-                min={formPeriodStart}
+                min={formPeriodStart || new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setFormPeriodEnd(e.target.value)}
                 className="border rounded p-2 w-full text-sm"
               />
