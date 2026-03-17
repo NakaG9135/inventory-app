@@ -56,6 +56,13 @@ function ReportForm() {
   const [customWorker, setCustomWorker] = useState("");
   const [workDescription, setWorkDescription] = useState("");
   const [groups, setGroups] = useState<MaterialGroup[]>([emptyGroup(0)]);
+
+  // 新規部材登録
+  const [newItemModal, setNewItemModal] = useState<{ groupKey: number; matKey: number; search: string } | null>(null);
+  const [newItemType, setNewItemType] = useState("");
+  const [newItemMaker, setNewItemMaker] = useState("");
+  const [newItemDetail, setNewItemDetail] = useState("");
+  const [newItemUnit, setNewItemUnit] = useState("");
   const [groupKeyCounter, setGroupKeyCounter] = useState(1);
 
   const [submitting, setSubmitting] = useState(false);
@@ -206,6 +213,57 @@ function ReportForm() {
     );
   };
 
+  const openNewItemModal = (groupKey: number, matKey: number, search: string) => {
+    setNewItemType("");
+    setNewItemMaker("");
+    setNewItemDetail(search);
+    setNewItemUnit("");
+    setNewItemModal({ groupKey, matKey, search });
+  };
+
+  const handleRegisterNewItem = async () => {
+    if (!newItemType.trim() || !newItemDetail.trim() || !newItemUnit.trim()) {
+      alert("種類、詳細、単位は必須です");
+      return;
+    }
+    // 類似チェック
+    const q = newItemDetail.trim().toLowerCase();
+    const similar = inventoryItems.filter(
+      (i) => i.detail?.toLowerCase().includes(q) || i.type?.toLowerCase().includes(newItemType.trim().toLowerCase())
+    );
+    if (similar.length > 0) {
+      const list = similar.slice(0, 5).map((i) => `${i.type} / ${i.maker} / ${i.detail}`).join("\n");
+      if (!confirm(`類似の商品があります:\n${list}\n\nそのまま新規登録しますか？`)) return;
+    }
+
+    const { data, error } = await supabase.from("inventory").insert({
+      type: newItemType.trim(),
+      maker: newItemMaker.trim(),
+      detail: newItemDetail.trim(),
+      unit: newItemUnit.trim(),
+      quantity: 0,
+    }).select().single();
+
+    if (error || !data) {
+      alert("登録に失敗しました: " + (error?.message || ""));
+      return;
+    }
+
+    const newItem: InventoryItem = data;
+    setInventoryItems((prev) => [...prev, newItem]);
+
+    if (newItemModal) {
+      updateMatInGroup(newItemModal.groupKey, newItemModal.matKey, {
+        item: newItem,
+        search: `${newItem.type}　${newItem.maker}　${newItem.detail}`,
+        showDropdown: false,
+      });
+    }
+
+    setNewItemModal(null);
+    alert("在庫一覧に新規登録しました");
+  };
+
   const buildReportPayload = () => ({
     site_name: siteName.trim(),
     work_date: workDate,
@@ -266,6 +324,14 @@ function ReportForm() {
     const hasNoMaterial = groups.some((g) => noMaterialKeywords.includes(g.label.trim()));
     const allValid = groups.flatMap((g) => g.materials.filter((m) => m.item && m.quantity > 0));
     if (!hasNoMaterial && allValid.length === 0) { alert("部材を1行以上入力してください。材料がない場合は①に「なし」「無し」「無」と入力してください。"); return; }
+
+    // 新規登録された商品の確認
+    const newItems = allValid.filter((m) => m.item && m.item.quantity === 0);
+    if (newItems.length > 0) {
+      const list = newItems.map((m) => `${m.item!.type} / ${m.item!.detail}`).join("\n");
+      if (!confirm(`以下の商品は在庫一覧に新規登録されたものです:\n${list}\n\nこのまま登録しますか？`)) return;
+    }
+
     setSubmitting(true);
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -567,26 +633,39 @@ function ReportForm() {
                         placeholder="種類・詳細で検索..."
                         className="border rounded p-2 w-full"
                       />
-                      {row.showDropdown && filteredItems(row.search).length > 0 && (
-                        <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
-                          {filteredItems(row.search).map((item) => (
-                            <li key={item.id}>
-                              <button
-                                onMouseDown={() => updateMatInGroup(group.groupKey, row.key, {
-                                  item,
-                                  search: `${item.type}　${item.maker}　${item.detail}`,
-                                  showDropdown: false,
-                                })}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
-                              >
-                                <span className="font-medium">{item.detail}</span>
-                                <span className="text-xs text-gray-400 ml-2">（{item.type} / {item.maker}）</span>
-                                <span className="text-xs text-gray-400 ml-1">在庫: {item.quantity}{item.unit}</span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                      {row.showDropdown && row.search.trim() && (() => {
+                        const results = filteredItems(row.search);
+                        return (
+                          <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
+                            {results.map((item) => (
+                              <li key={item.id}>
+                                <button
+                                  onMouseDown={() => updateMatInGroup(group.groupKey, row.key, {
+                                    item,
+                                    search: `${item.type}　${item.maker}　${item.detail}`,
+                                    showDropdown: false,
+                                  })}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
+                                >
+                                  <span className="font-medium">{item.detail}</span>
+                                  <span className="text-xs text-gray-400 ml-2">（{item.type} / {item.maker}）</span>
+                                  <span className="text-xs text-gray-400 ml-1">在庫: {item.quantity}{item.unit}</span>
+                                </button>
+                              </li>
+                            ))}
+                            {results.length === 0 && (
+                              <li>
+                                <button
+                                  onMouseDown={() => openNewItemModal(group.groupKey, row.key, row.search)}
+                                  className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 font-bold"
+                                >
+                                  「{row.search}」を在庫に新規登録する
+                                </button>
+                              </li>
+                            )}
+                          </ul>
+                        );
+                      })()}
                     </div>
                     {row.item && (
                       <div className="flex items-center gap-3 flex-wrap">
@@ -644,6 +723,56 @@ function ReportForm() {
       <p className="text-xs text-gray-400 mt-2 text-center">
         一時保存は在庫に反映されません。登録（出庫）で在庫から出庫されます。
       </p>
+
+      {/* 新規部材登録モーダル */}
+      {newItemModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-sm font-bold mb-1">在庫一覧に新規登録</h3>
+            <p className="text-xs text-gray-500 mb-4">在庫一覧にない商品を登録します。日報の登録時に在庫から出庫されます。</p>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">種類 *</label>
+                <input type="text" value={newItemType}
+                  onChange={(e) => setNewItemType(e.target.value)}
+                  placeholder="例: 塗料、配管、金具"
+                  className="border rounded p-2 w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">メーカー</label>
+                <input type="text" value={newItemMaker}
+                  onChange={(e) => setNewItemMaker(e.target.value)}
+                  placeholder="メーカー名（任意）"
+                  className="border rounded p-2 w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">詳細 *</label>
+                <input type="text" value={newItemDetail}
+                  onChange={(e) => setNewItemDetail(e.target.value)}
+                  placeholder="商品名・サイズなど"
+                  className="border rounded p-2 w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">単位 *</label>
+                <input type="text" value={newItemUnit}
+                  onChange={(e) => setNewItemUnit(e.target.value)}
+                  placeholder="例: 本、個、m、kg"
+                  className="border rounded p-2 w-full text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={handleRegisterNewItem}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold">
+                登録
+              </button>
+              <button onClick={() => setNewItemModal(null)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm">
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
