@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import * as XLSX from "xlsx";
 
 interface ReportMaterial {
   id: string;
@@ -39,6 +40,23 @@ export default function ReportLogsPage() {
   const [filterDate, setFilterDate] = useState("");
   const [filterWorker, setFilterWorker] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Excel出力用
+  const [exportSite, setExportSite] = useState("");
+  const [exportDateFrom, setExportDateFrom] = useState("");
+  const [exportDateTo, setExportDateTo] = useState("");
+
+  useEffect(() => {
+    const checkRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from("users_profile").select("role").eq("id", user.id).single();
+        if (data?.role === "admin") setIsAdmin(true);
+      }
+    };
+    checkRole();
+  }, []);
 
   const fetchReports = async () => {
     let query = supabase
@@ -110,6 +128,131 @@ export default function ReportLogsPage() {
     fetchReports();
   }, []);
 
+  // --- Excel出力 ---
+
+  const reportToRows = (report: Report, names: { [id: string]: string }) => {
+    const rows: any[][] = [];
+    rows.push(["現場名", report.site_name]);
+    rows.push(["月日", report.work_date]);
+    rows.push(["時間", report.work_time || ""]);
+    rows.push(["登録者", names[report.user_id] || ""]);
+    rows.push(["使用車両", (report.vehicles || []).filter(Boolean).join("、")]);
+    rows.push(["作業員", (report.workers || []).filter(Boolean).join("、")]);
+    rows.push(["作業内容", report.work_description || ""]);
+    rows.push([]);
+
+    // 部材
+    const labels = report.material_group_labels || [];
+    const mats = report.daily_report_materials || [];
+    if (mats.length > 0) {
+      const maxIdx = Math.max(...mats.map((m) => m.group_index ?? 0));
+      for (let gi = 0; gi <= maxIdx; gi++) {
+        const groupMats = mats.filter((m) => (m.group_index ?? 0) === gi);
+        if (groupMats.length === 0) continue;
+        const label = labels[gi] ? `${String.fromCharCode(0x2460 + gi)} ${labels[gi]}` : String.fromCharCode(0x2460 + gi);
+        rows.push([label]);
+        rows.push(["種類", "メーカー", "詳細", "数量", "単位"]);
+        for (const m of groupMats) {
+          rows.push([
+            m.inventory?.type || "",
+            m.inventory?.maker || "",
+            m.inventory?.detail || "",
+            m.quantity,
+            m.inventory?.unit || "",
+          ]);
+        }
+        rows.push([]);
+      }
+    } else {
+      rows.push(["使用部材: なし"]);
+    }
+    return rows;
+  };
+
+  const downloadWorkbook = (wb: XLSX.WorkBook, filename: string) => {
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 1件の日報をExcel出力
+  const exportSingleReport = (report: Report) => {
+    const wb = XLSX.utils.book_new();
+    const rows = reportToRows(report, userNames);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }];
+    XLSX.utils.book_append_sheet(wb, ws, report.work_date);
+    downloadWorkbook(wb, `日報_${report.site_name}_${report.work_date}.xlsx`);
+  };
+
+  // 期間指定でExcel出力（日付ごとにタブ）
+  const exportByDateRange = async () => {
+    if (!exportDateFrom || !exportDateTo) {
+      alert("期間を指定してください");
+      return;
+    }
+
+    let query = supabase
+      .from("daily_reports")
+      .select(`*, daily_report_materials(id, quantity, group_index, inventory!item_id(type, maker, detail, unit))`)
+      .eq("status", "confirmed")
+      .gte("work_date", exportDateFrom)
+      .lte("work_date", exportDateTo)
+      .order("work_date")
+      .order("created_at");
+
+    if (exportSite.trim()) {
+      query = query.ilike("site_name", `%${exportSite.trim()}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) { alert("取得に失敗しました"); return; }
+    const results = (data || []) as unknown as Report[];
+    if (results.length === 0) { alert("該当する日報がありません"); return; }
+
+    // ユーザー名取得
+    const uids = [...new Set(results.map((r) => r.user_id).filter(Boolean))];
+    let names: { [id: string]: string } = { ...userNames };
+    if (uids.length > 0) {
+      const { data: profiles } = await supabase.from("users_profile").select("id, name").in("id", uids);
+      if (profiles) profiles.forEach((p: any) => { names[p.id] = p.name; });
+    }
+
+    // 日付ごとにグループ化
+    const byDate: Record<string, Report[]> = {};
+    results.forEach((r) => {
+      if (!byDate[r.work_date]) byDate[r.work_date] = [];
+      byDate[r.work_date].push(r);
+    });
+
+    const wb = XLSX.utils.book_new();
+    const sortedDates = Object.keys(byDate).sort();
+
+    for (const date of sortedDates) {
+      const dateReports = byDate[date];
+      const allRows: any[][] = [];
+
+      dateReports.forEach((report, idx) => {
+        if (idx > 0) allRows.push([], ["─────────────────────────"]);
+        allRows.push(...reportToRows(report, names));
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(allRows);
+      ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }];
+      // シート名は31文字以内（Excel制限）
+      const sheetName = date.length > 31 ? date.slice(0, 31) : date;
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    }
+
+    const siteLabel = exportSite.trim() ? `_${exportSite.trim()}` : "";
+    downloadWorkbook(wb, `日報${siteLabel}_${exportDateFrom}～${exportDateTo}.xlsx`);
+  };
+
   return (
     <div className="p-6">
       <h1 className="text-xl font-bold mb-4">日報ログ</h1>
@@ -143,6 +286,50 @@ export default function ReportLogsPage() {
           検索
         </button>
       </div>
+
+      {/* Admin: Excel出力 */}
+      {isAdmin && (
+        <section className="bg-white border rounded-lg p-4 mb-6">
+          <h2 className="text-sm font-semibold text-gray-500 mb-3">Excel出力（admin）</h2>
+          <div className="flex gap-2 flex-wrap items-end">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">現場名（任意）</label>
+              <input
+                type="text"
+                value={exportSite}
+                onChange={(e) => setExportSite(e.target.value)}
+                placeholder="空欄で全現場"
+                className="border rounded p-2 text-sm w-40"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">開始日</label>
+              <input
+                type="date"
+                value={exportDateFrom}
+                onChange={(e) => setExportDateFrom(e.target.value)}
+                className="border rounded p-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">終了日</label>
+              <input
+                type="date"
+                value={exportDateTo}
+                onChange={(e) => setExportDateTo(e.target.value)}
+                className="border rounded p-2 text-sm"
+              />
+            </div>
+            <button
+              onClick={exportByDateRange}
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap"
+            >
+              Excel出力
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">日付ごとにシート（タブ）が分かれます。現場名を指定するとその現場のみ出力されます。</p>
+        </section>
+      )}
 
       {/* ログ一覧 */}
       {reports.length === 0 ? (
@@ -184,6 +371,14 @@ export default function ReportLogsPage() {
                       className="bg-yellow-400 hover:bg-yellow-500 text-white text-xs px-3 py-1.5 rounded font-bold whitespace-nowrap"
                     >
                       続きを入力
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={() => exportSingleReport(report)}
+                      className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1.5 rounded font-bold whitespace-nowrap"
+                    >
+                      Excel
                     </button>
                   )}
                 </div>
