@@ -502,22 +502,40 @@ export default function LendingPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...visibleRecords].sort((a, b) => {
-                  const aOver = !a.returned && new Date().toISOString().slice(0, 10) > a.period_end ? 0 : 1;
-                  const bOver = !b.returned && new Date().toISOString().slice(0, 10) > b.period_end ? 0 : 1;
-                  return aOver - bOver;
-                }).map((r) => {
-                  const isOverdue = !r.returned && new Date().toISOString().slice(0, 10) > r.period_end;
-                  return (
-                  <tr key={r.id} className={`border-b last:border-b-0 ${r.returned ? "opacity-50 hover:bg-gray-50" : isOverdue ? "bg-red-50 hover:bg-red-100" : "hover:bg-gray-50"}`}>
-                    <td className="py-2 pr-3 font-medium">{r.lending_items?.name}</td>
-                    <td className="py-2 pr-3">{r.site_name}</td>
-                    <td className="py-2 pr-3">{r.manager_name}</td>
-                    <td className="py-2 pr-3 text-xs text-gray-500">{r.registrant_name}</td>
-                    <td className={`py-2 pr-3 text-xs whitespace-nowrap ${isOverdue ? "text-red-600 font-bold" : ""}`}>
-                      {formatDate(r.period_start)}～{formatDate(r.period_end)}
-                      {isOverdue && " ※返却期限超過"}
-                    </td>
+                {(() => {
+                  const todayStr = new Date().toISOString().slice(0, 10);
+                  // 期限超過中の貸出物IDとその情報を収集
+                  const overdueMap: Record<string, { site: string; end: string }> = {};
+                  records.forEach((rec) => {
+                    if (!rec.returned && todayStr > rec.period_end) {
+                      overdueMap[rec.lending_item_id] = { site: rec.site_name, end: rec.period_end };
+                    }
+                  });
+                  return [...visibleRecords].sort((a, b) => {
+                    const aOver = !a.returned && todayStr > a.period_end ? 0 : 1;
+                    const bOver = !b.returned && todayStr > b.period_end ? 0 : 1;
+                    return aOver - bOver;
+                  }).map((r) => {
+                    const isOverdue = !r.returned && todayStr > r.period_end;
+                    const overdueInfo = overdueMap[r.lending_item_id];
+                    const isWaitingForOverdue = !r.returned && !isOverdue && overdueInfo && r.period_start > overdueInfo.end;
+                    return (
+                    <tr key={r.id} className={`border-b last:border-b-0 ${r.returned ? "opacity-50 hover:bg-gray-50" : isOverdue ? "bg-red-50 hover:bg-red-100" : isWaitingForOverdue ? "bg-orange-50 hover:bg-orange-100" : "hover:bg-gray-50"}`}>
+                      <td className="py-2 pr-3 font-medium">
+                        {r.lending_items?.name}
+                        {isWaitingForOverdue && (
+                          <span className="block text-xs text-orange-600 font-normal mt-0.5">
+                            ⚠ 前の貸出（{overdueInfo.site}）が未返却です
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">{r.site_name}</td>
+                      <td className="py-2 pr-3">{r.manager_name}</td>
+                      <td className="py-2 pr-3 text-xs text-gray-500">{r.registrant_name}</td>
+                      <td className={`py-2 pr-3 text-xs whitespace-nowrap ${isOverdue ? "text-red-600 font-bold" : isWaitingForOverdue ? "text-orange-600" : ""}`}>
+                        {formatDate(r.period_start)}～{formatDate(r.period_end)}
+                        {isOverdue && " ※返却期限超過"}
+                      </td>
                     <td className="py-2 pr-3 text-xs text-gray-500 whitespace-nowrap">{formatDateTime(r.created_at)}</td>
                     {isAdmin && (
                       <td className="py-2 pr-3">
@@ -569,9 +587,10 @@ export default function LendingPage() {
                         )}
                       </div>
                     </td>
-                  </tr>
-                  );
-                })}
+                    </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
