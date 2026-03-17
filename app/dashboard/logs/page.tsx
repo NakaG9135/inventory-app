@@ -23,6 +23,7 @@ function LogsPage() {
         id,
         change_type,
         quantity,
+        company_name,
         site_name,
         created_at,
         inventory!item_id(type, maker, detail, unit),
@@ -142,6 +143,7 @@ function LogsPage() {
             <th className="border px-4 py-2 whitespace-nowrap w-1">詳細</th>
             <th className="border px-4 py-2 whitespace-nowrap w-1">入出庫</th>
             <th className="border px-4 py-2 whitespace-nowrap w-1">数量</th>
+            <th className="border px-4 py-2 whitespace-nowrap w-1">会社名</th>
             <th className="border px-4 py-2 whitespace-nowrap w-1">現場名</th>
             <th className="border px-4 py-2 whitespace-nowrap w-1">日時</th>
           </tr>
@@ -159,6 +161,7 @@ function LogsPage() {
               <td className="border px-4 py-2 whitespace-nowrap w-1">
                 {log.quantity} {log.inventory?.unit}
               </td>
+              <td className="border px-4 py-2 whitespace-nowrap w-1">{log.company_name || "-"}</td>
               <td className="border px-4 py-2 whitespace-nowrap w-1">{log.site_name || "-"}</td>
               <td className="border px-4 py-2 whitespace-nowrap w-1">
                 {new Date(log.created_at.endsWith("Z") || log.created_at.includes("+") ? log.created_at : log.created_at + "Z").toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}

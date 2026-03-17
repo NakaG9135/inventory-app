@@ -12,6 +12,7 @@ interface LendingItem {
 interface LendingRecord {
   id: string;
   lending_item_id: string;
+  company_name: string;
   site_name: string;
   manager_name: string;
   registrant_name: string;
@@ -31,6 +32,7 @@ export default function LendingPage() {
   const [records, setRecords] = useState<LendingRecord[]>([]);
   const [workers, setWorkers] = useState<string[]>([]);
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
+  const [siteCompanyMap, setSiteCompanyMap] = useState<Record<string, string>>({});
 
   // Admin: 貸出物追加
   const [newItemName, setNewItemName] = useState("");
@@ -40,6 +42,7 @@ export default function LendingPage() {
   // 貸出登録フォーム
   const [showForm, setShowForm] = useState(false);
   const [formItemId, setFormItemId] = useState("");
+  const [formCompanyName, setFormCompanyName] = useState("");
   const [formSiteName, setFormSiteName] = useState("");
   const [formManager, setFormManager] = useState("");
   const [formPeriodStart, setFormPeriodStart] = useState("");
@@ -95,16 +98,15 @@ export default function LendingPage() {
 
   const fetchSiteNames = async () => {
     const [logs, reports, reserves] = await Promise.all([
-      supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
-      supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
-      supabase.from("material_reserve_sites").select("site_name"),
+      supabase.from("inventory_logs").select("site_name, company_name").not("site_name", "is", null),
+      supabase.from("daily_reports").select("site_name, company_name").not("site_name", "is", null),
+      supabase.from("material_reserve_sites").select("site_name, company_name"),
     ]);
-    const all = [
-      ...(logs.data || []).map((d: any) => d.site_name),
-      ...(reports.data || []).map((d: any) => d.site_name),
-      ...(reserves.data || []).map((d: any) => d.site_name),
-    ].filter(Boolean);
-    setPastSiteNames([...new Set(all)] as string[]);
+    const allEntries = [...(logs.data || []), ...(reports.data || []), ...(reserves.data || [])].filter((d: any) => d.site_name);
+    setPastSiteNames([...new Set(allEntries.map((d: any) => d.site_name))] as string[]);
+    const map: Record<string, string> = {};
+    allEntries.forEach((d: any) => { if (d.site_name && d.company_name) map[d.site_name] = d.company_name; });
+    setSiteCompanyMap(map);
   };
 
   // Admin: 貸出物CRUD
@@ -211,6 +213,7 @@ export default function LendingPage() {
           }).eq("id", rec.id);
 
           setFormItemId("");
+          setFormCompanyName("");
           setFormSiteName("");
           setFormManager("");
           setFormPeriodStart("");
@@ -238,6 +241,7 @@ export default function LendingPage() {
 
     if (!existingSite) {
       await supabase.from("material_reserve_sites").insert({
+        company_name: formCompanyName.trim(),
         site_name: formSiteName.trim(),
         manager_name: formManager,
       });
@@ -245,6 +249,7 @@ export default function LendingPage() {
 
     const { error } = await supabase.from("lending_records").insert({
       lending_item_id: formItemId,
+      company_name: formCompanyName.trim(),
       site_name: formSiteName.trim(),
       manager_name: formManager,
       registrant_name: currentUserName,
@@ -254,6 +259,7 @@ export default function LendingPage() {
     if (error) { alert("登録に失敗しました: " + error.message); return; }
 
     setFormItemId("");
+    setFormCompanyName("");
     setFormSiteName("");
     setFormManager("");
     setFormPeriodStart("");
@@ -309,7 +315,14 @@ export default function LendingPage() {
   });
 
   const suggestedSites = formSiteName.trim()
-    ? pastSiteNames.filter((s) => s.toLowerCase().includes(formSiteName.trim().toLowerCase()))
+    ? pastSiteNames.filter((s) => {
+        const match = s.toLowerCase().includes(formSiteName.trim().toLowerCase());
+        if (formCompanyName.trim()) {
+          const co = siteCompanyMap[s] || "";
+          return match && co.toLowerCase().includes(formCompanyName.trim().toLowerCase());
+        }
+        return match;
+      })
     : [];
 
   return (
@@ -424,6 +437,14 @@ export default function LendingPage() {
               </select>
             </div>
 
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">会社名</label>
+              <input type="text" value={formCompanyName}
+                onChange={(e) => setFormCompanyName(e.target.value)}
+                placeholder="会社名を入力" autoComplete="off"
+                className="border rounded p-2 w-full text-sm" />
+            </div>
+
             <div className="relative">
               <label className="text-xs text-gray-500 block mb-1">現場名 *</label>
               <input
@@ -441,10 +462,11 @@ export default function LendingPage() {
                   {suggestedSites.map((s) => (
                     <li key={s}>
                       <button
-                        onMouseDown={() => { setFormSiteName(s); setShowSiteSuggest(false); }}
+                        onMouseDown={() => { setFormSiteName(s); if (siteCompanyMap[s]) setFormCompanyName(siteCompanyMap[s]); setShowSiteSuggest(false); }}
                         className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50"
                       >
                         {s}
+                        {siteCompanyMap[s] && <span className="text-xs text-gray-400 ml-2">({siteCompanyMap[s]})</span>}
                       </button>
                     </li>
                   ))}

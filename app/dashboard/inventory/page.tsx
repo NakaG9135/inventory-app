@@ -7,6 +7,7 @@ import { isFuzzyMatch as isSimilarSite } from "@/lib/fuzzyMatch";
 interface OpModal {
   itemId: string;
   quantity: number;
+  companyName: string;
   siteName: string;
   siteConfirmPending: boolean;
   plannedYear: string;
@@ -28,6 +29,7 @@ export default function InventoryPage() {
   const [searchManufacturer, setSearchManufacturer] = useState("");
   const [searchDetail, setSearchDetail] = useState("");
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
+  const [siteCompanyMap, setSiteCompanyMap] = useState<Record<string, string>>({});
   const [opModal, setOpModal] = useState<OpModal | null>(null);
   const [sortKey, setSortKey] = useState<"type" | "maker" | "detail" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -46,16 +48,19 @@ export default function InventoryPage() {
 
   const fetchPastSiteNames = async () => {
     const [logs, reports, reserves] = await Promise.all([
-      supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
-      supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
-      supabase.from("material_reserve_sites").select("site_name"),
+      supabase.from("inventory_logs").select("site_name, company_name").not("site_name", "is", null),
+      supabase.from("daily_reports").select("site_name, company_name").not("site_name", "is", null),
+      supabase.from("material_reserve_sites").select("site_name, company_name"),
     ]);
-    const all = [
-      ...(logs.data || []).map((d: any) => d.site_name),
-      ...(reports.data || []).map((d: any) => d.site_name),
-      ...(reserves.data || []).map((d: any) => d.site_name),
-    ].filter(Boolean);
-    setPastSiteNames([...new Set(all)] as string[]);
+    const allEntries = [
+      ...(logs.data || []),
+      ...(reports.data || []),
+      ...(reserves.data || []),
+    ].filter((d: any) => d.site_name);
+    setPastSiteNames([...new Set(allEntries.map((d: any) => d.site_name))] as string[]);
+    const map: Record<string, string> = {};
+    allEntries.forEach((d: any) => { if (d.site_name && d.company_name) map[d.site_name] = d.company_name; });
+    setSiteCompanyMap(map);
   };
 
   const fetchWorkers = async () => {
@@ -102,6 +107,7 @@ export default function InventoryPage() {
       return;
     }
     await supabase.from("material_reserve_sites").insert({
+      company_name: opModal!.companyName.trim(),
       site_name: opModal!.siteName.trim(),
       manager_name: ioManagerName.trim(),
     });
@@ -139,6 +145,7 @@ export default function InventoryPage() {
       change_type: change > 0 ? "in" : "out",
       quantity,
       user_id: userData.user.id,
+      company_name: opModal.companyName.trim() || "",
       site_name: siteName || null,
     });
     if (logError) {
@@ -236,7 +243,7 @@ export default function InventoryPage() {
     // Create site
     const { data: newSite, error: siteError } = await supabase
       .from("material_reserve_sites")
-      .insert({ site_name: managerModal.siteName, manager_name: managerModal.managerName.trim() })
+      .insert({ company_name: opModal?.companyName.trim() || "", site_name: managerModal.siteName, manager_name: managerModal.managerName.trim() })
       .select("id")
       .single();
 
@@ -342,7 +349,14 @@ export default function InventoryPage() {
     : items;
 
   const suggestedSites = opModal?.siteName.trim()
-    ? pastSiteNames.filter((s) => isSimilarSite(s, opModal.siteName))
+    ? pastSiteNames.filter((s) => {
+        const matchName = isSimilarSite(s, opModal.siteName);
+        if (opModal.companyName.trim()) {
+          const co = siteCompanyMap[s] || "";
+          return matchName && co.toLowerCase().includes(opModal.companyName.trim().toLowerCase());
+        }
+        return matchName;
+      })
     : [];
 
   const opItem = opModal ? items.find((i) => i.id === opModal.itemId) : null;
@@ -464,6 +478,19 @@ export default function InventoryPage() {
               </div>
             </div>
 
+            {/* 会社名入力 */}
+            <div className="mb-4">
+              <label className="text-xs text-gray-500 mb-1 block">会社名</label>
+              <input
+                type="text"
+                placeholder="会社名を入力"
+                value={opModal.companyName}
+                autoComplete="off"
+                onChange={(e) => setOpModal((p) => p && { ...p, companyName: e.target.value })}
+                className="border rounded p-2 w-full text-sm"
+              />
+            </div>
+
             {/* 現場名入力 */}
             <div className="mb-4">
               <label className="text-xs text-gray-500 mb-1 block">現場名（必須）</label>
@@ -484,10 +511,11 @@ export default function InventoryPage() {
                     {suggestedSites.map((s) => (
                       <li key={s}>
                         <button
-                          onClick={() => setOpModal((p) => p && { ...p, siteName: s, siteConfirmPending: false })}
+                          onClick={() => setOpModal((p) => p && { ...p, siteName: s, companyName: siteCompanyMap[s] || p?.companyName || "", siteConfirmPending: false })}
                           className="w-full text-left border rounded px-3 py-1.5 text-sm hover:bg-blue-50 hover:border-blue-300"
                         >
                           {s}
+                          {siteCompanyMap[s] && <span className="text-xs text-gray-400 ml-2">({siteCompanyMap[s]})</span>}
                         </button>
                       </li>
                     ))}
@@ -604,7 +632,7 @@ export default function InventoryPage() {
               <td className="border px-3 py-2 text-center font-bold whitespace-nowrap">{item.quantity}</td>
               <td className="border px-3 py-2 text-center w-1">
                 <button
-                  onClick={() => setOpModal({ itemId: item.id, quantity: 0, siteName: "", siteConfirmPending: false, plannedYear: "", plannedMonth: "", plannedDay: "" })}
+                  onClick={() => setOpModal({ itemId: item.id, quantity: 0, companyName: "", siteName: "", siteConfirmPending: false, plannedYear: "", plannedMonth: "", plannedDay: "" })}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap"
                 >
                   入出庫

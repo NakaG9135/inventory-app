@@ -19,6 +19,7 @@ interface ReportMaterial {
 
 interface Report {
   id: string;
+  company_name: string;
   site_name: string;
   work_date: string;
   work_time: string | null;
@@ -80,6 +81,7 @@ export default function ReportLogsPage() {
       .from("daily_reports")
       .select(`
         id,
+        company_name,
         site_name,
         work_date,
         work_time,
@@ -149,6 +151,7 @@ export default function ReportLogsPage() {
 
   const reportToRows = (report: Report, names: { [id: string]: string }) => {
     const rows: any[][] = [];
+    rows.push(["会社名", report.company_name || ""]);
     rows.push(["現場名", report.site_name]);
     rows.push(["月日", report.work_date]);
     rows.push(["時間", report.work_time || ""]);
@@ -452,6 +455,12 @@ export default function ReportLogsPage() {
 
                     {/* 基本情報 */}
                     <div className="space-y-2">
+                      {report.company_name && (
+                        <div>
+                          <span className="text-xs text-gray-400 block">会社名</span>
+                          <span>{report.company_name}</span>
+                        </div>
+                      )}
                       <div>
                         <span className="text-xs text-gray-400 block">現場名</span>
                         <span className="font-semibold">{report.site_name}</span>

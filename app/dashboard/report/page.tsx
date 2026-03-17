@@ -43,9 +43,11 @@ function ReportForm() {
 
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
+  const [siteCompanyMap, setSiteCompanyMap] = useState<Record<string, string>>({});
   const [rosterWorkers, setRosterWorkers] = useState<string[]>([]);
   const [registeredVehicles, setRegisteredVehicles] = useState<string[]>([]);
 
+  const [companyName, setCompanyName] = useState("");
   const [siteName, setSiteName] = useState("");
   const [workDate, setWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [workTimeStart, setWorkTimeStart] = useState("");
@@ -86,16 +88,22 @@ function ReportForm() {
     };
     const fetchSites = async () => {
       const [logs, reports, reserves] = await Promise.all([
-        supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
-        supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
-        supabase.from("material_reserve_sites").select("site_name"),
+        supabase.from("inventory_logs").select("site_name, company_name").not("site_name", "is", null),
+        supabase.from("daily_reports").select("site_name, company_name").not("site_name", "is", null),
+        supabase.from("material_reserve_sites").select("site_name, company_name"),
       ]);
-      const all = [
-        ...(logs.data || []).map((d: any) => d.site_name),
-        ...(reports.data || []).map((d: any) => d.site_name),
-        ...(reserves.data || []).map((d: any) => d.site_name),
-      ].filter(Boolean);
-      setPastSiteNames([...new Set(all)] as string[]);
+      const allEntries = [
+        ...(logs.data || []),
+        ...(reports.data || []),
+        ...(reserves.data || []),
+      ].filter((d: any) => d.site_name);
+      const names = [...new Set(allEntries.map((d: any) => d.site_name))] as string[];
+      setPastSiteNames(names);
+      const map: Record<string, string> = {};
+      allEntries.forEach((d: any) => {
+        if (d.site_name && d.company_name) map[d.site_name] = d.company_name;
+      });
+      setSiteCompanyMap(map);
     };
     const fetchRosterWorkers = async () => {
       const { data } = await supabase
@@ -131,6 +139,7 @@ function ReportForm() {
         .eq("status", "draft")
         .single();
       if (!data) return;
+      setCompanyName(data.company_name || "");
       setSiteName(data.site_name || "");
       setWorkDate(data.work_date || new Date().toISOString().slice(0, 10));
       const parts = (data.work_time || "").split("～");
@@ -283,6 +292,7 @@ function ReportForm() {
   };
 
   const buildReportPayload = () => ({
+    company_name: companyName.trim(),
     site_name: siteName.trim(),
     work_date: workDate,
     work_time: workTimeStart || workTimeEnd ? `${workTimeStart}～${workTimeEnd}` : null,
@@ -366,6 +376,7 @@ function ReportForm() {
       return;
     }
     await supabase.from("material_reserve_sites").insert({
+      company_name: companyName.trim(),
       site_name: siteName.trim(),
       manager_name: siteManagerName.trim(),
     });
@@ -487,6 +498,7 @@ function ReportForm() {
           change_type: "out",
           quantity: row.quantity,
           user_id: session.user.id,
+          company_name: companyName.trim(),
           site_name: siteName.trim(),
         });
       }
@@ -554,7 +566,14 @@ function ReportForm() {
       <section className="bg-white border rounded-lg p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">基本情報</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="md:col-span-2 relative">
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">会社名</label>
+            <input type="text" value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="会社名を入力" autoComplete="off"
+              className="border rounded p-2 w-full" />
+          </div>
+          <div className="relative">
             <label className="text-xs text-gray-500 block mb-1">現場名 *</label>
             <input type="text" value={siteName}
               onChange={(e) => { setSiteName(e.target.value); setShowSiteSuggest(true); }}
@@ -563,18 +582,28 @@ function ReportForm() {
               placeholder="現場名を入力" autoComplete="off"
               className="border rounded p-2 w-full" />
             {showSiteSuggest && siteName.trim() && (() => {
-              const suggestions = pastSiteNames.filter((s) =>
-                s.toLowerCase().includes(siteName.trim().toLowerCase())
-              );
+              const suggestions = pastSiteNames.filter((s) => {
+                const matchName = s.toLowerCase().includes(siteName.trim().toLowerCase());
+                if (companyName.trim()) {
+                  const co = siteCompanyMap[s] || "";
+                  return matchName && co.toLowerCase().includes(companyName.trim().toLowerCase());
+                }
+                return matchName;
+              });
               return suggestions.length > 0 ? (
                 <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
                   {suggestions.map((s) => (
                     <li key={s}>
                       <button
-                        onMouseDown={() => { setSiteName(s); setShowSiteSuggest(false); }}
+                        onMouseDown={() => {
+                          setSiteName(s);
+                          if (siteCompanyMap[s]) setCompanyName(siteCompanyMap[s]);
+                          setShowSiteSuggest(false);
+                        }}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
                       >
                         {s}
+                        {siteCompanyMap[s] && <span className="text-xs text-gray-400 ml-2">({siteCompanyMap[s]})</span>}
                       </button>
                     </li>
                   ))}

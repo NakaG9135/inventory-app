@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 interface ReserveSite {
   id: string;
+  company_name: string;
   site_name: string;
   manager_name: string;
   created_at: string;
@@ -266,6 +267,7 @@ export default function ReservesPage() {
               >
                 <div>
                   <span className="font-bold text-base">{site.site_name}</span>
+                  {site.company_name && <span className="text-xs text-gray-400 ml-2">({site.company_name})</span>}
                   <span className="text-xs text-gray-400 ml-3">管理者: {site.manager_name}</span>
                   <span className="text-xs text-gray-400 ml-3">{site.items.length}品目</span>
                 </div>

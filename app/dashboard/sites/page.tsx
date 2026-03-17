@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 interface SiteInfo {
   siteName: string;
+  companyName: string;
   address: string;
   officeLocation: string;
   manager: string;
@@ -62,11 +63,13 @@ export default function SitesPage() {
     (reportsRes.data || []).forEach((d: any) => d.site_name && allSiteNames.add(d.site_name));
     (reservesRes.data || []).forEach((d: any) => d.site_name && allSiteNames.add(d.site_name));
 
-    // 2. 管理者を取得（材料確保の現場から）
-    const { data: reserveSites } = await supabase.from("material_reserve_sites").select("site_name, manager_name");
+    // 2. 管理者・会社名を取得（材料確保の現場から）
+    const { data: reserveSites } = await supabase.from("material_reserve_sites").select("site_name, manager_name, company_name");
     const managerMap: Record<string, string> = {};
+    const companyMap: Record<string, string> = {};
     (reserveSites || []).forEach((s: any) => {
       if (s.manager_name) managerMap[s.site_name] = s.manager_name;
+      if (s.company_name) companyMap[s.site_name] = s.company_name;
     });
 
     // 3. 確定済み日報から現場ごとの作業員を取得
@@ -92,6 +95,7 @@ export default function SitesPage() {
     // 5. 統合
     const siteList: SiteInfo[] = [...allSiteNames].sort().map((name) => ({
       siteName: name,
+      companyName: companyMap[name] || "",
       address: detailsMap[name]?.address || "",
       officeLocation: detailsMap[name]?.officeLocation || "",
       manager: managerMap[name] || "",
@@ -190,6 +194,9 @@ export default function SitesPage() {
               >
                 <div className="text-left">
                   <span className="font-bold text-sm">{site.siteName}</span>
+                  {site.companyName && (
+                    <span className="ml-2 text-xs text-gray-400">({site.companyName})</span>
+                  )}
                   {site.manager && (
                     <span className="ml-3 text-xs text-gray-500">管理者: {site.manager}</span>
                   )}
@@ -255,6 +262,10 @@ export default function SitesPage() {
                     </div>
                   ) : (
                     <div className="mt-3 space-y-1">
+                      <div className="flex text-sm">
+                        <span className="text-gray-500 w-32 shrink-0">会社名:</span>
+                        <span>{site.companyName || "未登録"}</span>
+                      </div>
                       <div className="flex text-sm">
                         <span className="text-gray-500 w-32 shrink-0">現場住所:</span>
                         {site.address ? (
