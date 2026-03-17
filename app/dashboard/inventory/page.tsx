@@ -9,6 +9,9 @@ interface OpModal {
   quantity: number;
   siteName: string;
   siteConfirmPending: boolean;
+  plannedYear: string;
+  plannedMonth: string;
+  plannedDay: string;
 }
 
 interface ManagerModal {
@@ -16,6 +19,7 @@ interface ManagerModal {
   itemId: string;
   quantity: number;
   managerName: string;
+  plannedDate: string;
 }
 
 export default function InventoryPage() {
@@ -109,8 +113,13 @@ export default function InventoryPage() {
 
   const handleReserve = async () => {
     if (!opModal) return;
-    const { itemId, quantity, siteName } = opModal;
+    const { itemId, quantity, siteName, plannedYear, plannedMonth, plannedDay } = opModal;
     if (quantity <= 0 || !siteName.trim()) return;
+    if (!plannedYear || !plannedMonth) {
+      alert("使用予定日の年と月は必須です");
+      return;
+    }
+    const plannedDate = `${plannedYear}-${plannedMonth.padStart(2, "0")}${plannedDay ? "-" + plannedDay.padStart(2, "0") : ""}`;
 
     const { data: userData } = await supabase.auth.getUser();
     if (!userData?.user) {
@@ -135,7 +144,7 @@ export default function InventoryPage() {
 
     if (existingSite) {
       // Site exists: upsert item
-      await upsertReserveItem(existingSite.id, itemId, quantity, operatorName);
+      await upsertReserveItem(existingSite.id, itemId, quantity, operatorName, plannedDate);
     } else {
       // New site: show manager selection modal
       setManagerModal({
@@ -143,6 +152,7 @@ export default function InventoryPage() {
         itemId,
         quantity,
         managerName: "",
+        plannedDate,
       });
       return; // Don't close opModal yet
     }
@@ -176,13 +186,13 @@ export default function InventoryPage() {
       .single();
     const operatorName = profile?.name || "不明";
 
-    await upsertReserveItem(newSite.id, managerModal.itemId, managerModal.quantity, operatorName);
+    await upsertReserveItem(newSite.id, managerModal.itemId, managerModal.quantity, operatorName, managerModal.plannedDate || "");
 
     setManagerModal(null);
     setOpModal(null);
   };
 
-  const upsertReserveItem = async (siteId: string, itemId: string, quantity: number, operatorName: string) => {
+  const upsertReserveItem = async (siteId: string, itemId: string, quantity: number, operatorName: string, plannedDate: string) => {
     // Check if same item already exists at this site
     const { data: existing } = await supabase
       .from("material_reserve_items")
@@ -200,6 +210,7 @@ export default function InventoryPage() {
         .update({
           quantity: existing.quantity + quantity,
           operator_name: operatorName,
+          planned_date: plannedDate,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existing.id);
@@ -217,6 +228,7 @@ export default function InventoryPage() {
           item_id: itemId,
           quantity,
           operator_name: operatorName,
+          planned_date: plannedDate,
         })
         .select("id")
         .single();
@@ -378,6 +390,43 @@ export default function InventoryPage() {
               )}
             </div>
 
+            {/* 使用予定日 */}
+            <div className="mb-4">
+              <label className="text-xs text-gray-500 mb-1 block">使用予定日（年・月 必須 / 日 任意）</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  placeholder="年"
+                  value={opModal.plannedYear}
+                  onChange={(e) => setOpModal((p) => p && { ...p, plannedYear: e.target.value })}
+                  className="border rounded p-2 w-20 text-sm text-center"
+                  min="2024"
+                  max="2099"
+                />
+                <span className="text-sm shrink-0">年</span>
+                <input
+                  type="number"
+                  placeholder="月"
+                  value={opModal.plannedMonth}
+                  onChange={(e) => setOpModal((p) => p && { ...p, plannedMonth: e.target.value })}
+                  className="border rounded p-2 w-16 text-sm text-center"
+                  min="1"
+                  max="12"
+                />
+                <span className="text-sm shrink-0">月</span>
+                <input
+                  type="number"
+                  placeholder="日"
+                  value={opModal.plannedDay}
+                  onChange={(e) => setOpModal((p) => p && { ...p, plannedDay: e.target.value })}
+                  className="border rounded p-2 w-16 text-sm text-center"
+                  min="1"
+                  max="31"
+                />
+                <span className="text-sm shrink-0">日</span>
+              </div>
+            </div>
+
             {/* 入庫・出庫・材料確保・キャンセル */}
             <div className="flex gap-2 mb-2">
               <button
@@ -449,7 +498,7 @@ export default function InventoryPage() {
               <td className="border px-3 py-2 text-center font-bold whitespace-nowrap">{item.quantity}</td>
               <td className="border px-3 py-2 text-center w-1">
                 <button
-                  onClick={() => setOpModal({ itemId: item.id, quantity: 0, siteName: "", siteConfirmPending: false })}
+                  onClick={() => setOpModal({ itemId: item.id, quantity: 0, siteName: "", siteConfirmPending: false, plannedYear: "", plannedMonth: "", plannedDay: "" })}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap"
                 >
                   入出庫

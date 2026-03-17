@@ -16,6 +16,7 @@ interface ReserveItem {
   item_id: string;
   quantity: number;
   operator_name: string;
+  planned_date: string;
   updated_at: string;
   inventory: {
     type: string;
@@ -222,6 +223,7 @@ export default function ReservesPage() {
                             <th className="py-2 pr-3">メーカー</th>
                             <th className="py-2 pr-3">詳細</th>
                             <th className="py-2 pr-3 text-center">数量</th>
+                            <th className="py-2 pr-3">使用予定</th>
                             <th className="py-2 w-16"></th>
                           </tr>
                         </thead>
@@ -237,6 +239,9 @@ export default function ReservesPage() {
                               <td className="py-2 pr-3">{item.inventory?.detail}</td>
                               <td className="py-2 pr-3 text-center font-bold">
                                 {item.quantity} {item.inventory?.unit}
+                              </td>
+                              <td className="py-2 pr-3 text-xs text-gray-600 whitespace-nowrap">
+                                {item.planned_date ? item.planned_date.replace(/-/g, "/") : ""}
                               </td>
                               <td className="py-2">
                                 {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
