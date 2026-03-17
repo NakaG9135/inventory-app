@@ -19,6 +19,7 @@ interface MaterialRow {
   quantity: number;
   search: string;
   showDropdown: boolean;
+  note: string;
 }
 
 interface MaterialGroup {
@@ -28,7 +29,7 @@ interface MaterialGroup {
   matKeyCounter: number;
 }
 
-const emptyMat = (): MaterialRow => ({ key: 0, item: null, quantity: 0, search: "", showDropdown: false });
+const emptyMat = (): MaterialRow => ({ key: 0, item: null, quantity: 0, search: "", showDropdown: false, note: "" });
 const emptyGroup = (groupKey: number): MaterialGroup => ({
   groupKey,
   label: "",
@@ -167,6 +168,7 @@ function ReportForm() {
             quantity: m.quantity,
             search: m.inventory ? `${m.inventory.type}　${m.inventory.maker}　${m.inventory.detail}` : "",
             showDropdown: false,
+            note: m.note || "",
           }));
         loadedGroups.push({
           groupKey: gi,
@@ -218,7 +220,7 @@ function ReportForm() {
   const addMatToGroup = (groupKey: number) =>
     setGroups((g) => g.map((x) => x.groupKey !== groupKey ? x : {
       ...x,
-      materials: [...x.materials, { key: x.matKeyCounter, item: null, quantity: 0, search: "", showDropdown: false }],
+      materials: [...x.materials, { key: x.matKeyCounter, item: null, quantity: 0, search: "", showDropdown: false, note: "" }],
       matKeyCounter: x.matKeyCounter + 1,
     }));
   const removeMatFromGroup = (groupKey: number, matKey: number) =>
@@ -314,6 +316,7 @@ function ReportForm() {
           item_id: row.item!.id,
           quantity: row.quantity,
           group_index: gi,
+          note: row.note || "",
         });
       }
     }
@@ -499,6 +502,7 @@ function ReportForm() {
           item_id: item.id,
           quantity: row.quantity,
           group_index: gi,
+          note: row.note || "",
         });
 
         // 出庫ログは全量分残す
@@ -840,17 +844,25 @@ function ReportForm() {
                       })()}
                     </div>
                     {row.item && (
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <div className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1 flex-1">
-                          {row.item.type}　{row.item.maker}　{row.item.detail}
+                      <>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1 flex-1">
+                            {row.item.type}　{row.item.maker}　{row.item.detail}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-gray-400">{row.item.unit}</span>
+                            <input type="number" min="1" value={row.quantity || ""}
+                              onChange={(e) => updateMatInGroup(group.groupKey, row.key, { quantity: Math.max(0, Number(e.target.value)) })}
+                              placeholder="数量" className="border rounded p-2 w-24 text-center" />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-400">{row.item.unit}</span>
-                          <input type="number" min="1" value={row.quantity || ""}
-                            onChange={(e) => updateMatInGroup(group.groupKey, row.key, { quantity: Math.max(0, Number(e.target.value)) })}
-                            placeholder="数量" className="border rounded p-2 w-24 text-center" />
+                        <div className="mt-1">
+                          <input type="text" value={row.note}
+                            onChange={(e) => updateMatInGroup(group.groupKey, row.key, { note: e.target.value })}
+                            placeholder="備考（任意）"
+                            className="border rounded p-1.5 w-full text-xs text-gray-600" />
                         </div>
-                      </div>
+                      </>
                     )}
                     {group.materials.length > 1 && (
                       <button onClick={() => removeMatFromGroup(group.groupKey, row.key)}

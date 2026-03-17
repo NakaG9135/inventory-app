@@ -9,6 +9,7 @@ interface ReportMaterial {
   id: string;
   quantity: number;
   group_index: number | null;
+  note: string;
   inventory: {
     type: string;
     maker: string;
@@ -97,6 +98,7 @@ export default function ReportLogsPage() {
           id,
           quantity,
           group_index,
+          note,
           inventory!item_id(type, maker, detail, unit)
         )
       `)
@@ -180,7 +182,7 @@ export default function ReportLogsPage() {
         if (groupMats.length === 0) continue;
         const label = labels[gi] ? `${String.fromCharCode(0x2460 + gi)} ${labels[gi]}` : String.fromCharCode(0x2460 + gi);
         rows.push([label]);
-        rows.push(["種類", "メーカー", "詳細", "数量", "単位"]);
+        rows.push(["種類", "メーカー", "詳細", "数量", "単位", "備考"]);
         for (const m of groupMats) {
           rows.push([
             m.inventory?.type || "",
@@ -188,6 +190,7 @@ export default function ReportLogsPage() {
             m.inventory?.detail || "",
             m.quantity,
             m.inventory?.unit || "",
+            m.note || "",
           ]);
         }
         rows.push([]);
@@ -214,7 +217,7 @@ export default function ReportLogsPage() {
     const wb = XLSX.utils.book_new();
     const rows = reportToRows(report, userNames);
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }];
+    ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 20 }];
     XLSX.utils.book_append_sheet(wb, ws, report.work_date);
     downloadWorkbook(wb, `日報_${report.site_name}_${report.work_date}.xlsx`);
   };
@@ -228,7 +231,7 @@ export default function ReportLogsPage() {
 
     let query = supabase
       .from("daily_reports")
-      .select(`*, daily_report_materials(id, quantity, group_index, inventory!item_id(type, maker, detail, unit))`)
+      .select(`*, daily_report_materials(id, quantity, group_index, note, inventory!item_id(type, maker, detail, unit))`)
       .eq("status", "confirmed")
       .gte("work_date", exportDateFrom)
       .lte("work_date", exportDateTo)
@@ -272,7 +275,7 @@ export default function ReportLogsPage() {
       });
 
       const ws = XLSX.utils.aoa_to_sheet(allRows);
-      ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }];
+      ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 20 }];
       // シート名は31文字以内（Excel制限）
       const sheetName = date.length > 31 ? date.slice(0, 31) : date;
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -610,6 +613,7 @@ export default function ReportLogsPage() {
                                         <th className="border px-3 py-1 text-left whitespace-nowrap">詳細</th>
                                         <th className="border px-3 py-1 text-center whitespace-nowrap">数量</th>
                                         <th className="border px-3 py-1 text-center whitespace-nowrap">単位</th>
+                                        <th className="border px-3 py-1 text-left whitespace-nowrap">備考</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -620,6 +624,7 @@ export default function ReportLogsPage() {
                                           <td className="border px-3 py-1 whitespace-nowrap">{m.inventory?.detail || "—"}</td>
                                           <td className="border px-3 py-1 text-center font-bold">{m.quantity}</td>
                                           <td className="border px-3 py-1 text-center">{m.inventory?.unit || "—"}</td>
+                                          <td className="border px-3 py-1 text-xs text-gray-500">{m.note || ""}</td>
                                         </tr>
                                       ))}
                                     </tbody>
