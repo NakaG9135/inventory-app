@@ -66,6 +66,8 @@ function ReportForm() {
   const [newItemUnit, setNewItemUnit] = useState("");
   const [groupKeyCounter, setGroupKeyCounter] = useState(1);
 
+  const [showSiteSuggest, setShowSiteSuggest] = useState(false);
+
   // 新規現場登録
   const [siteManagerModal, setSiteManagerModal] = useState(false);
   const [siteManagerName, setSiteManagerName] = useState("");
@@ -552,14 +554,33 @@ function ReportForm() {
       <section className="bg-white border rounded-lg p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">基本情報</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 relative">
             <label className="text-xs text-gray-500 block mb-1">現場名 *</label>
-            <input type="text" value={siteName} onChange={(e) => setSiteName(e.target.value)}
-              list="site-datalist" placeholder="現場名を入力"
+            <input type="text" value={siteName}
+              onChange={(e) => { setSiteName(e.target.value); setShowSiteSuggest(true); }}
+              onFocus={() => setShowSiteSuggest(true)}
+              onBlur={() => setTimeout(() => setShowSiteSuggest(false), 150)}
+              placeholder="現場名を入力" autoComplete="off"
               className="border rounded p-2 w-full" />
-            <datalist id="site-datalist">
-              {pastSiteNames.map((s) => <option key={s} value={s} />)}
-            </datalist>
+            {showSiteSuggest && siteName.trim() && (() => {
+              const suggestions = pastSiteNames.filter((s) =>
+                s.toLowerCase().includes(siteName.trim().toLowerCase())
+              );
+              return suggestions.length > 0 ? (
+                <ul className="absolute z-10 bg-white border rounded shadow-lg w-full max-h-40 overflow-y-auto mt-1">
+                  {suggestions.map((s) => (
+                    <li key={s}>
+                      <button
+                        onMouseDown={() => { setSiteName(s); setShowSiteSuggest(false); }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
+                      >
+                        {s}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null;
+            })()}
           </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">月日 *</label>

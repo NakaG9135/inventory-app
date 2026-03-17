@@ -45,14 +45,17 @@ export default function InventoryPage() {
   };
 
   const fetchPastSiteNames = async () => {
-    const { data } = await supabase
-      .from("inventory_logs")
-      .select("site_name")
-      .not("site_name", "is", null);
-    if (data) {
-      const unique = [...new Set(data.map((d: any) => d.site_name).filter(Boolean))] as string[];
-      setPastSiteNames(unique);
-    }
+    const [logs, reports, reserves] = await Promise.all([
+      supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
+      supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
+      supabase.from("material_reserve_sites").select("site_name"),
+    ]);
+    const all = [
+      ...(logs.data || []).map((d: any) => d.site_name),
+      ...(reports.data || []).map((d: any) => d.site_name),
+      ...(reserves.data || []).map((d: any) => d.site_name),
+    ].filter(Boolean);
+    setPastSiteNames([...new Set(all)] as string[]);
   };
 
   const fetchWorkers = async () => {

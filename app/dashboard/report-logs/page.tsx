@@ -41,11 +41,14 @@ export default function ReportLogsPage() {
   const [filterWorker, setFilterWorker] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showFilterSiteSuggest, setShowFilterSiteSuggest] = useState(false);
 
   // Excel出力用
   const [exportSite, setExportSite] = useState("");
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
+  const [pastSiteNames, setPastSiteNames] = useState<string[]>([]);
+  const [showExportSiteSuggest, setShowExportSiteSuggest] = useState(false);
 
   useEffect(() => {
     const checkRole = async () => {
@@ -56,6 +59,20 @@ export default function ReportLogsPage() {
       }
     };
     checkRole();
+    const fetchSiteNames = async () => {
+      const [logs, reports, reserves] = await Promise.all([
+        supabase.from("inventory_logs").select("site_name").not("site_name", "is", null),
+        supabase.from("daily_reports").select("site_name").not("site_name", "is", null),
+        supabase.from("material_reserve_sites").select("site_name"),
+      ]);
+      const all = [
+        ...(logs.data || []).map((d: any) => d.site_name),
+        ...(reports.data || []).map((d: any) => d.site_name),
+        ...(reserves.data || []).map((d: any) => d.site_name),
+      ].filter(Boolean);
+      setPastSiteNames([...new Set(all)] as string[]);
+    };
+    fetchSiteNames();
   }, []);
 
   const fetchReports = async () => {
@@ -259,13 +276,37 @@ export default function ReportLogsPage() {
 
       {/* 検索 */}
       <div className="flex gap-2 flex-wrap mb-4">
-        <input
-          type="text"
-          placeholder="現場名で検索"
-          value={filterSite}
-          onChange={(e) => setFilterSite(e.target.value)}
-          className="border rounded p-2 text-sm"
-        />
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="現場名で検索"
+            value={filterSite}
+            onChange={(e) => { setFilterSite(e.target.value); setShowFilterSiteSuggest(true); }}
+            onFocus={() => setShowFilterSiteSuggest(true)}
+            onBlur={() => setTimeout(() => setShowFilterSiteSuggest(false), 150)}
+            autoComplete="off"
+            className="border rounded p-2 text-sm"
+          />
+          {showFilterSiteSuggest && filterSite.trim() && (() => {
+            const suggestions = pastSiteNames.filter((s) =>
+              s.toLowerCase().includes(filterSite.trim().toLowerCase())
+            );
+            return suggestions.length > 0 ? (
+              <ul className="absolute z-10 bg-white border rounded shadow-lg w-60 max-h-40 overflow-y-auto mt-1">
+                {suggestions.map((s) => (
+                  <li key={s}>
+                    <button
+                      onMouseDown={() => { setFilterSite(s); setShowFilterSiteSuggest(false); }}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50"
+                    >
+                      {s}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null;
+          })()}
+        </div>
         <input
           type="text"
           placeholder="作業員名で検索"
@@ -292,15 +333,37 @@ export default function ReportLogsPage() {
         <section className="bg-white border rounded-lg p-4 mb-6">
           <h2 className="text-sm font-semibold text-gray-500 mb-3">Excel出力（admin）</h2>
           <div className="flex gap-2 flex-wrap items-end">
-            <div>
+            <div className="relative">
               <label className="text-xs text-gray-500 block mb-1">現場名（任意）</label>
               <input
                 type="text"
                 value={exportSite}
-                onChange={(e) => setExportSite(e.target.value)}
+                onChange={(e) => { setExportSite(e.target.value); setShowExportSiteSuggest(true); }}
+                onFocus={() => setShowExportSiteSuggest(true)}
+                onBlur={() => setTimeout(() => setShowExportSiteSuggest(false), 150)}
                 placeholder="空欄で全現場"
+                autoComplete="off"
                 className="border rounded p-2 text-sm w-40"
               />
+              {showExportSiteSuggest && exportSite.trim() && (() => {
+                const suggestions = pastSiteNames.filter((s) =>
+                  s.toLowerCase().includes(exportSite.trim().toLowerCase())
+                );
+                return suggestions.length > 0 ? (
+                  <ul className="absolute z-10 bg-white border rounded shadow-lg w-60 max-h-40 overflow-y-auto mt-1">
+                    {suggestions.map((s) => (
+                      <li key={s}>
+                        <button
+                          onMouseDown={() => { setExportSite(s); setShowExportSiteSuggest(false); }}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50"
+                        >
+                          {s}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null;
+              })()}
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">開始日</label>
