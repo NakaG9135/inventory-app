@@ -118,31 +118,58 @@ export default function SitesPage() {
     return currentUserRole === "admin" || currentUserName === site.manager;
   };
 
+  const [editSiteName, setEditSiteName] = useState("");
+
   const handleStartEdit = (site: SiteInfo) => {
     setEditingSite(site.siteName);
+    setEditSiteName(site.siteName);
     setEditAddress(site.address);
     setEditOffice(site.officeLocation);
     setEditManager(site.manager);
     setEditCompany(site.companyName);
   };
 
-  const handleSaveDetails = async (siteName: string) => {
+  const handleSaveDetails = async (oldSiteName: string) => {
+    const newSiteName = editSiteName.trim();
+    const siteRenamed = currentUserRole === "admin" && newSiteName && newSiteName !== oldSiteName;
+
+    // 現場名変更の場合、類似チェック
+    if (siteRenamed) {
+      const existsAlready = sites.find((s) => s.siteName === newSiteName);
+      if (existsAlready) {
+        alert(`「${newSiteName}」は既に存在します。別の名前を入力してください。`);
+        return;
+      }
+      const similar = sites.filter((s) =>
+        s.siteName !== oldSiteName &&
+        (s.siteName.toLowerCase().includes(newSiteName.toLowerCase()) || newSiteName.toLowerCase().includes(s.siteName.toLowerCase()))
+      );
+      if (similar.length > 0) {
+        const list = similar.map((s) => s.siteName).join("\n");
+        if (!confirm(`類似の現場名があります:\n${list}\n\nそのまま「${newSiteName}」に変更しますか？`)) return;
+      }
+      if (!confirm(`現場名を「${oldSiteName}」→「${newSiteName}」に変更しますか？\n関連する全てのデータが更新されます。`)) return;
+    }
+
+    const targetSiteName = siteRenamed ? newSiteName : oldSiteName;
+
     // upsert site_details
     const { data: existing } = await supabase
       .from("site_details")
       .select("id")
-      .eq("site_name", siteName)
+      .eq("site_name", oldSiteName)
       .single();
 
     if (existing) {
       await supabase.from("site_details").update({
+        site_name: targetSiteName,
         address: editAddress.trim(),
         office_location: editOffice.trim(),
         updated_at: new Date().toISOString(),
       }).eq("id", existing.id);
     } else {
       await supabase.from("site_details").insert({
-        site_name: siteName,
+        site_name: targetSiteName,
         address: editAddress.trim(),
         office_location: editOffice.trim(),
       });
@@ -153,17 +180,25 @@ export default function SitesPage() {
       const { data: existingSite } = await supabase
         .from("material_reserve_sites")
         .select("id")
-        .eq("site_name", siteName)
+        .eq("site_name", oldSiteName)
         .single();
 
       if (existingSite) {
-        const updateData: any = {};
+        const updateData: any = { site_name: targetSiteName };
         if (editManager.trim()) updateData.manager_name = editManager.trim();
         if (editCompany !== undefined) updateData.company_name = editCompany.trim();
-        if (Object.keys(updateData).length > 0) {
-          await supabase.from("material_reserve_sites").update(updateData).eq("id", existingSite.id);
-        }
+        await supabase.from("material_reserve_sites").update(updateData).eq("id", existingSite.id);
       }
+    }
+
+    // 現場名変更の場合、全テーブルを一括更新
+    if (siteRenamed) {
+      await Promise.all([
+        supabase.from("daily_reports").update({ site_name: newSiteName }).eq("site_name", oldSiteName),
+        supabase.from("inventory_logs").update({ site_name: newSiteName }).eq("site_name", oldSiteName),
+        supabase.from("lending_records").update({ site_name: newSiteName }).eq("site_name", oldSiteName),
+        supabase.from("material_reserve_items").select("id, site_id").then(() => {}), // items are linked by site_id FK, no update needed
+      ]);
     }
 
     setEditingSite(null);
@@ -317,6 +352,17 @@ export default function SitesPage() {
                   {/* 住所・事務所 */}
                   {editingSite === site.siteName ? (
                     <div className="mt-3 space-y-2">
+                      {currentUserRole === "admin" && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">現場名</label>
+                          <input
+                            type="text"
+                            value={editSiteName}
+                            onChange={(e) => setEditSiteName(e.target.value)}
+                            className="border rounded p-2 w-full text-sm"
+                          />
+                        </div>
+                      )}
                       <div>
                         <label className="text-xs text-gray-500 block mb-1">現場住所</label>
                         <input
