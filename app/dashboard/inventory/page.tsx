@@ -496,11 +496,20 @@ export default function InventoryPage() {
                   if (e.target.value === "__new__") {
                     const name = prompt("新しい会社名を入力してください");
                     if (name && name.trim()) {
-                      const exists = registeredCompanies.find((c) => c === name.trim());
-                      if (exists) { setOpModal((p) => p && { ...p, companyName: exists }); }
-                      else if (confirm(`「${name.trim()}」を新しい会社名として登録しますか？`)) {
-                        setOpModal((p) => p && { ...p, companyName: name.trim() });
-                        setRegisteredCompanies((prev) => [...prev, name.trim()].sort());
+                      const trimmed = name.trim();
+                      const exact = registeredCompanies.find((c) => c === trimmed);
+                      if (exact) { setOpModal((p) => p && { ...p, companyName: exact }); }
+                      else {
+                        const similar = registeredCompanies.filter((c) =>
+                          c.toLowerCase().includes(trimmed.toLowerCase()) || trimmed.toLowerCase().includes(c.toLowerCase())
+                        );
+                        if (similar.length > 0) {
+                          if (!confirm(`類似の会社名があります:\n${similar.join("\n")}\n\nそのまま「${trimmed}」を新規登録しますか？`)) return;
+                        } else {
+                          if (!confirm(`「${trimmed}」を新しい会社名として登録しますか？`)) return;
+                        }
+                        setOpModal((p) => p && { ...p, companyName: trimmed });
+                        setRegisteredCompanies((prev) => [...prev, trimmed].sort());
                       }
                     }
                   } else {
