@@ -119,10 +119,19 @@ export default function InventoryPage() {
       alert("使用予定日の年と月は必須です");
       return;
     }
+
+    const now = new Date();
+    const isSameYearMonth = Number(plannedYear) === now.getFullYear() && Number(plannedMonth) === now.getMonth() + 1;
+
+    // 当月の場合は日の入力も必須
+    if (isSameYearMonth && !plannedDay) {
+      alert("当月の場合は日の入力も必須です");
+      return;
+    }
+
     const plannedDate = `${plannedYear}-${plannedMonth.padStart(2, "0")}${plannedDay ? "-" + plannedDay.padStart(2, "0") : ""}`;
 
     // 過去日チェック
-    const now = new Date();
     if (plannedDay) {
       const inputDate = new Date(Number(plannedYear), Number(plannedMonth) - 1, Number(plannedDay));
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
