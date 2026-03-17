@@ -557,6 +557,10 @@ export default function LendingPage() {
                           <span className="text-xs text-green-600">
                             {r.return_type === "前倒し" ? "前倒し返却" : r.return_type === "admin代行" ? "admin代行返却" : "返却済"} {r.returned_at ? formatDateTime(r.returned_at) : ""}
                           </span>
+                        ) : isOverdue ? (
+                          <span className="text-xs text-red-600 font-bold">期限超過</span>
+                        ) : todayStr < r.period_start ? (
+                          <span className="text-xs text-blue-500 font-bold">貸出待ち</span>
                         ) : (
                           <span className="text-xs text-orange-500 font-bold">貸出中</span>
                         )}
