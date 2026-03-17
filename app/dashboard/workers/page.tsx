@@ -8,6 +8,7 @@ interface WorkerProfile {
   id: string;
   name: string;
   sites: string[];
+  lastLoginAt: string | null;
 }
 
 export default function WorkersPage() {
@@ -39,7 +40,7 @@ export default function WorkersPage() {
     // role='user' の作業員一覧
     const { data: profiles, error } = await supabase
       .from("users_profile")
-      .select("id, name")
+      .select("id, name, last_login_at")
       .eq("role", "user")
       .order("name");
 
@@ -54,7 +55,7 @@ export default function WorkersPage() {
     const reportList = (reports || []) as { site_name: string; workers: string[] }[];
 
     // 各作業員が登場した現場名を抽出
-    const workersWithSites: WorkerProfile[] = profiles.map((p: { id: string; name: string }) => {
+    const workersWithSites: WorkerProfile[] = profiles.map((p: { id: string; name: string; last_login_at: string | null }) => {
       const sites = [
         ...new Set(
           reportList
@@ -63,7 +64,7 @@ export default function WorkersPage() {
             .filter(Boolean)
         ),
       ].sort((a, b) => a.localeCompare(b, "ja"));
-      return { id: p.id, name: p.name, sites };
+      return { id: p.id, name: p.name, sites, lastLoginAt: p.last_login_at };
     });
 
     setWorkers(workersWithSites);
@@ -86,7 +87,14 @@ export default function WorkersPage() {
           <ul className="divide-y">
             {workers.map((w) => (
               <li key={w.id} className="px-4 py-3">
-                <div className="text-sm font-semibold mb-1">{w.name}</div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-semibold">{w.name}</span>
+                  <span className="text-xs text-gray-400">
+                    {w.lastLoginAt
+                      ? `最終ログイン: ${new Date(w.lastLoginAt).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+                      : "未ログイン"}
+                  </span>
+                </div>
                 {w.sites.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
                     {w.sites.map((site) => (
