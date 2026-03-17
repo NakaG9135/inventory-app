@@ -261,8 +261,11 @@ function ReportForm() {
   const handleSubmit = async () => {
     if (!siteName.trim()) { alert("現場名を入力してください"); return; }
     if (!workDate) { alert("月日を入力してください"); return; }
+    if (!workDescription.trim()) { alert("作業内容を入力してください"); return; }
+    const noMaterialKeywords = ["なし", "無し", "無"];
+    const hasNoMaterial = groups.some((g) => noMaterialKeywords.includes(g.label.trim()));
     const allValid = groups.flatMap((g) => g.materials.filter((m) => m.item && m.quantity > 0));
-    if (allValid.length === 0) { alert("部材を1行以上入力してください"); return; }
+    if (!hasNoMaterial && allValid.length === 0) { alert("部材を1行以上入力してください。材料がない場合は①に「なし」「無し」「無」と入力してください。"); return; }
     setSubmitting(true);
 
     const { data: { session } } = await supabase.auth.getSession();
