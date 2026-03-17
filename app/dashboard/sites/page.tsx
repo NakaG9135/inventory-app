@@ -257,7 +257,18 @@ export default function SitesPage() {
                     <div className="mt-3 space-y-1">
                       <div className="flex text-sm">
                         <span className="text-gray-500 w-32 shrink-0">現場住所:</span>
-                        <span>{site.address || "未登録"}</span>
+                        {site.address ? (
+                          <a
+                            href={`https://maps.google.com/maps?q=${encodeURIComponent(site.address)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 hover:text-blue-700 underline"
+                          >
+                            {site.address}
+                          </a>
+                        ) : (
+                          <span>未登録</span>
+                        )}
                       </div>
                       <div className="flex text-sm">
                         <span className="text-gray-500 w-32 shrink-0">事務所の場所:</span>
