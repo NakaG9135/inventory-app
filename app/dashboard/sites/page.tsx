@@ -19,6 +19,8 @@ export default function SitesPage() {
   const [editingSite, setEditingSite] = useState<string | null>(null);
   const [editAddress, setEditAddress] = useState("");
   const [editOffice, setEditOffice] = useState("");
+  const [editManager, setEditManager] = useState("");
+  const [workers, setWorkers] = useState<string[]>([]);
   const [searchSite, setSearchSite] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -34,6 +36,11 @@ export default function SitesPage() {
       }
     };
     fetchUser();
+    const fetchWorkers = async () => {
+      const { data } = await supabase.from("users_profile").select("name").order("name");
+      if (data) setWorkers(data.map((d: any) => d.name));
+    };
+    fetchWorkers();
   }, []);
 
   useEffect(() => {
@@ -103,6 +110,7 @@ export default function SitesPage() {
     setEditingSite(site.siteName);
     setEditAddress(site.address);
     setEditOffice(site.officeLocation);
+    setEditManager(site.manager);
   };
 
   const handleSaveDetails = async (siteName: string) => {
@@ -125,6 +133,21 @@ export default function SitesPage() {
         address: editAddress.trim(),
         office_location: editOffice.trim(),
       });
+    }
+
+    // adminのみ管理者を変更
+    if (currentUserRole === "admin" && editManager.trim()) {
+      const { data: existingSite } = await supabase
+        .from("material_reserve_sites")
+        .select("id")
+        .eq("site_name", siteName)
+        .single();
+
+      if (existingSite) {
+        await supabase.from("material_reserve_sites").update({
+          manager_name: editManager.trim(),
+        }).eq("id", existingSite.id);
+      }
     }
 
     setEditingSite(null);
@@ -200,6 +223,21 @@ export default function SitesPage() {
                           className="border rounded p-2 w-full text-sm"
                         />
                       </div>
+                      {currentUserRole === "admin" && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">管理者</label>
+                          <select
+                            value={editManager}
+                            onChange={(e) => setEditManager(e.target.value)}
+                            className="border rounded p-2 w-full text-sm"
+                          >
+                            <option value="">選択してください</option>
+                            {workers.map((w) => (
+                              <option key={w} value={w}>{w}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleSaveDetails(site.siteName)}
