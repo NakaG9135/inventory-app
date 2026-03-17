@@ -81,6 +81,24 @@ export default function ReservesPage() {
     setSites(sitesWithItems);
   };
 
+  const isExpired = (plannedDate: string) => {
+    if (!plannedDate) return false;
+    const parts = plannedDate.split("-");
+    const now = new Date();
+    if (parts.length === 3) {
+      // 年-月-日: 今日より前
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return d < today;
+    } else if (parts.length === 2) {
+      // 年-月: 当月より前
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+      const cur = new Date(now.getFullYear(), now.getMonth(), 1);
+      return d < cur;
+    }
+    return false;
+  };
+
   useEffect(() => {
     fetchSites();
   }, []);
@@ -228,10 +246,16 @@ export default function ReservesPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {site.items.map((item) => (
+                          {[...site.items].sort((a, b) => {
+                            const aExp = isExpired(a.planned_date) ? 0 : 1;
+                            const bExp = isExpired(b.planned_date) ? 0 : 1;
+                            return aExp - bExp;
+                          }).map((item) => {
+                            const expired = isExpired(item.planned_date);
+                            return (
                             <tr
                               key={item.id}
-                              className="border-b last:border-b-0 hover:bg-blue-50 cursor-pointer"
+                              className={`border-b last:border-b-0 cursor-pointer ${expired ? "bg-red-50 hover:bg-red-100" : "hover:bg-blue-50"}`}
                               onClick={() => handleShowLogs(item)}
                             >
                               <td className="py-2 pr-3">{item.inventory?.type}</td>
@@ -240,8 +264,9 @@ export default function ReservesPage() {
                               <td className="py-2 pr-3 text-center font-bold">
                                 {item.quantity} {item.inventory?.unit}
                               </td>
-                              <td className="py-2 pr-3 text-xs text-gray-600 whitespace-nowrap">
+                              <td className={`py-2 pr-3 text-xs whitespace-nowrap ${expired ? "text-red-600 font-bold" : "text-gray-600"}`}>
                                 {item.planned_date ? item.planned_date.replace(/-/g, "/") : ""}
+                                {expired && " ※期限超過"}
                               </td>
                               <td className="py-2">
                                 {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
@@ -254,7 +279,8 @@ export default function ReservesPage() {
                                 )}
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
