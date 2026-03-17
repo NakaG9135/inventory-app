@@ -457,14 +457,19 @@ function ReportForm() {
       .eq("site_name", siteName.trim())
       .single();
 
+    // 盛替キーワード
+    const morikaeKeywords = ["盛替", "盛替え", "盛変え", "盛変", "盛換え", "盛換"];
+    const isMorikae = (note: string) => morikaeKeywords.some((k) => note.includes(k));
+
     // 部材登録 + 在庫出庫処理
     for (const [gi, group] of groups.entries()) {
       for (const row of group.materials.filter((m) => m.item && m.quantity > 0)) {
         const item = row.item!;
+        const skipDeduction = isMorikae(row.note || "");
         let remainingQty = row.quantity;
 
-        // 材料確保から引く
-        if (reserveSite) {
+        // 材料確保から引く（盛替の場合はスキップ）
+        if (reserveSite && !skipDeduction) {
           const { data: reserveItem } = await supabase
             .from("material_reserve_items")
             .select("id, quantity")
@@ -489,8 +494,8 @@ function ReportForm() {
         }
 
         // 確保で足りない分のみ在庫から追加で引く（確保分は確保時に既に引かれている）
-        // 新規登録された商品は在庫から引かない
-        if (remainingQty > 0 && !newlyRegisteredIds.has(item.id)) {
+        // 新規登録された商品・盛替の場合は在庫から引かない
+        if (remainingQty > 0 && !newlyRegisteredIds.has(item.id) && !skipDeduction) {
           const { data: latest } = await supabase.from("inventory").select("quantity").eq("id", item.id).single();
           if (latest) {
             await supabase.from("inventory").update({ quantity: latest.quantity - remainingQty }).eq("id", item.id);
