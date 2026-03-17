@@ -211,12 +211,13 @@ export default function InventoryPage() {
   };
 
   const upsertReserveItem = async (siteId: string, itemId: string, quantity: number, operatorName: string, plannedDate: string) => {
-    // Check if same item already exists at this site
+    // Check if same item + same planned_date already exists at this site
     const { data: existing } = await supabase
       .from("material_reserve_items")
       .select("id, quantity")
       .eq("site_id", siteId)
       .eq("item_id", itemId)
+      .eq("planned_date", plannedDate)
       .single();
 
     let reserveItemId: string;
