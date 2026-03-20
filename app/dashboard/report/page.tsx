@@ -324,7 +324,6 @@ function ReportForm() {
 
   // 一時保存（在庫処理なし）
   const handleSaveDraft = async () => {
-    if (!siteName.trim()) { alert("現場名を入力してください"); return; }
     const siteOk = await checkAndRegisterSite("draft");
     if (!siteOk) return;
     doSaveDraft();
@@ -404,15 +403,40 @@ function ReportForm() {
 
   // 本登録（在庫出庫処理あり）
   const handleSubmit = async () => {
-    if (!siteName.trim()) { alert("現場名を入力してください"); return; }
-    if (!workDate) { alert("月日を入力してください"); return; }
-    if (!workDescription.trim()) { alert("作業内容を入力してください"); return; }
     const noMaterialKeywords = ["なし", "無し", "無"];
-    const hasNoMaterial = groups.some((g) => noMaterialKeywords.includes(g.label.trim()));
-    const allValid = groups.flatMap((g) => g.materials.filter((m) => m.item && m.quantity > 0));
-    if (!hasNoMaterial && allValid.length === 0) { alert("部材を1行以上入力してください。材料がない場合は①に「なし」「無し」「無」と入力してください。"); return; }
+    const firstGroupLabel = groups[0]?.label.trim() || "";
+    const firstGroupIsNashi = noMaterialKeywords.some((k) => firstGroupLabel.includes(k));
+
+    const errors: string[] = [];
+    if (!companyName.trim()) errors.push("会社名");
+    if (!siteName.trim()) errors.push("現場名");
+    if (!workDate) errors.push("月日");
+    if (!workTimeStart) errors.push("開始時間");
+    if (!workTimeEnd) errors.push("終了時間");
+    if (vehicles.filter(Boolean).length === 0) errors.push("使用車両（1台以上）");
+    if (workers.filter(Boolean).length === 0) errors.push("作業員（1名以上）");
+    if (!firstGroupLabel) errors.push("使用部材①の工区・場所名（ない場合は「なし」と入力）");
+    for (let i = 1; i < groups.length; i++) {
+      if (!groups[i].label.trim()) errors.push(`使用部材${String.fromCharCode(0x2460 + i)}の工区・場所名`);
+    }
+    if (!firstGroupIsNashi) {
+      for (const group of groups) {
+        const hasValidMat = group.materials.some((m) => m.item && m.quantity > 0);
+        if (!hasValidMat) {
+          const lbl = group.label.trim() || "（ラベル未入力）";
+          errors.push(`「${lbl}」の商品を1つ以上選択してください`);
+        }
+      }
+    }
+    if (!workDescription.trim()) errors.push("作業内容");
+
+    if (errors.length > 0) {
+      alert(`以下の項目を入力してください:\n・${errors.join("\n・")}`);
+      return;
+    }
 
     // 新規登録された商品の確認
+    const allValid = groups.flatMap((g) => g.materials.filter((m) => m.item && m.quantity > 0));
     const newItems = allValid.filter((m) => m.item && m.item.quantity === 0);
     if (newItems.length > 0) {
       const list = newItems.map((m) => `${m.item!.type} / ${m.item!.detail}`).join("\n");
@@ -677,7 +701,7 @@ function ReportForm() {
               className="border rounded p-2 w-full" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 block mb-1">時間</label>
+            <label className="text-xs text-gray-500 block mb-1">時間 *</label>
             <div className="flex items-center gap-2">
               <input type="time" value={workTimeStart} onChange={(e) => setWorkTimeStart(e.target.value)}
                 className="border rounded p-2 flex-1 min-w-0" />
@@ -790,7 +814,7 @@ function ReportForm() {
                   type="text"
                   value={group.label}
                   onChange={(e) => updateGroupLabel(group.groupKey, e.target.value)}
-                  placeholder="工区・場所名（任意）"
+                  placeholder="工区・場所名（必須 ない場合「なし」と記入）"
                   className="border rounded p-2 flex-1 min-w-0 bg-white"
                 />
                 {groups.length > 1 && (
