@@ -834,7 +834,16 @@ function ReportForm() {
                         value={row.search}
                         onChange={(e) => updateMatInGroup(group.groupKey, row.key, { search: e.target.value, showDropdown: true, item: null })}
                         onFocus={() => updateMatInGroup(group.groupKey, row.key, { showDropdown: true })}
-                        onBlur={() => setTimeout(() => updateMatInGroup(group.groupKey, row.key, { showDropdown: false }), 150)}
+                        onBlur={() => setTimeout(() => {
+                          setGroups((prev) => prev.map((x) => x.groupKey !== group.groupKey ? x : {
+                            ...x,
+                            materials: x.materials.map((m) => m.key !== row.key ? m : {
+                              ...m,
+                              showDropdown: false,
+                              search: m.item ? m.search : "",
+                            }),
+                          }));
+                        }, 150)}
                         placeholder="種類・詳細で検索..."
                         className="border rounded p-2 w-full"
                       />
