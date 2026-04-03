@@ -64,7 +64,8 @@ export async function POST(request: Request) {
   for (const file of files) {
     try {
       const filePath = path.join(dataDir, file);
-      const wb = XLSX.readFile(filePath);
+      const buf = fs.readFileSync(filePath);
+      const wb = XLSX.read(buf, { type: "buffer" });
 
       // 内訳シートを探す
       const sheetName = wb.SheetNames.find((s) => s.includes("内訳")) || wb.SheetNames[0];
