@@ -21,7 +21,7 @@ const TABS = [
   { key: "労務費", label: "労務費" },
 ] as const;
 
-const OWNER_NAME = "中島悠介";
+const OWNER_NAME = "中島悠介admin";
 
 function MaterialPricesPage() {
   const [activeTab, setActiveTab] = useState<string>("材料費");
