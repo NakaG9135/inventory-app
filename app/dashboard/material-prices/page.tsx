@@ -36,6 +36,11 @@ function MaterialPricesPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<Record<string, unknown> | null>(null);
 
+  // 重複管理
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [duplicates, setDuplicates] = useState<{ name: string; specification: string; count: number; items: MaterialPrice[] }[]>([]);
+  const [loadingDuplicates, setLoadingDuplicates] = useState(false);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     let query = supabase
@@ -63,9 +68,9 @@ function MaterialPricesPage() {
     fetchData();
   }, [fetchData]);
 
-  // タブ・検索変更時にページリセット
   useEffect(() => {
     setPage(0);
+    setShowDuplicates(false);
   }, [activeTab, searchName, searchSpec]);
 
   const handleSort = (key: keyof MaterialPrice) => {
@@ -79,7 +84,7 @@ function MaterialPricesPage() {
   };
 
   const handleImport = async () => {
-    if (!confirm("quotedata/quotedata/ 内の全Excelファイルから取込みます。\n同じ項目は単価が高い方を採用します。\n\nよろしいですか？")) return;
+    if (!confirm("quotedata/quotedata/ 内の全Excelファイルから取込みます。\n\nよろしいですか？")) return;
 
     setImporting(true);
     setImportResult(null);
@@ -111,6 +116,7 @@ function MaterialPricesPage() {
       alert("削除に失敗しました: " + error.message);
     } else {
       fetchData();
+      if (showDuplicates) findDuplicates();
     }
   };
 
@@ -122,7 +128,94 @@ function MaterialPricesPage() {
       alert("削除に失敗しました: " + error.message);
     } else {
       fetchData();
+      setDuplicates([]);
     }
+  };
+
+  // 重複検出: 同じ名称+規格が2件以上あるものを取得
+  const findDuplicates = async () => {
+    setLoadingDuplicates(true);
+    setShowDuplicates(true);
+
+    // 全件取得して重複を検出
+    const { data, error } = await supabase
+      .from("material_prices")
+      .select("*")
+      .eq("category", activeTab)
+      .order("name", { ascending: true })
+      .order("unit_price", { ascending: false });
+
+    if (error || !data) {
+      setLoadingDuplicates(false);
+      return;
+    }
+
+    // 名称+規格でグルーピング
+    const groups = new Map<string, MaterialPrice[]>();
+    for (const item of data as MaterialPrice[]) {
+      const key = `${item.name}|||${item.specification}`;
+      const list = groups.get(key) || [];
+      list.push(item);
+      groups.set(key, list);
+    }
+
+    // 2件以上あるグループのみ
+    const dupList = Array.from(groups.entries())
+      .filter(([, items]) => items.length >= 2)
+      .map(([, items]) => ({
+        name: items[0].name,
+        specification: items[0].specification,
+        count: items.length,
+        items: items.sort((a, b) => b.unit_price - a.unit_price), // 高い順
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+
+    setDuplicates(dupList);
+    setLoadingDuplicates(false);
+  };
+
+  // 重複グループで最高単価以外を一括削除
+  const handleKeepHighest = async (group: { name: string; specification: string; items: MaterialPrice[] }) => {
+    const toKeep = group.items[0]; // 単価最高（ソート済み）
+    const toDelete = group.items.slice(1);
+    if (!confirm(`「${group.name}」の重複${toDelete.length}件を削除し、単価 ¥${Number(toKeep.unit_price).toLocaleString("ja-JP")} のみ残しますか？`)) return;
+
+    const ids = toDelete.map((d) => d.id);
+    const { error } = await supabase.from("material_prices").delete().in("id", ids);
+    if (error) {
+      alert("削除に失敗しました: " + error.message);
+    } else {
+      findDuplicates();
+      fetchData();
+    }
+  };
+
+  // 全重複を一括処理（各グループの最高単価のみ残す）
+  const handleKeepAllHighest = async () => {
+    if (duplicates.length === 0) return;
+    const totalToDelete = duplicates.reduce((s, g) => s + g.items.length - 1, 0);
+    if (!confirm(`${duplicates.length}グループの重複から${totalToDelete}件を削除し、各グループの最高単価のみ残しますか？`)) return;
+
+    const idsToDelete: string[] = [];
+    for (const group of duplicates) {
+      for (let i = 1; i < group.items.length; i++) {
+        idsToDelete.push(group.items[i].id);
+      }
+    }
+
+    // バッチ削除
+    const BATCH = 200;
+    for (let i = 0; i < idsToDelete.length; i += BATCH) {
+      const batch = idsToDelete.slice(i, i + BATCH);
+      const { error } = await supabase.from("material_prices").delete().in("id", batch);
+      if (error) {
+        alert(`削除エラー: ${error.message}`);
+        break;
+      }
+    }
+
+    findDuplicates();
+    fetchData();
   };
 
   const sortIcon = (key: keyof MaterialPrice) => {
@@ -149,7 +242,7 @@ function MaterialPricesPage() {
             {importing ? "取込中..." : "Excelデータ取込"}
           </button>
           <span className="text-sm text-gray-600">
-            Excelの内訳シートから材料費・労務費を自動分類して取込
+            Excelの内訳シートから材料費・労務費を自動分類して全件取込
           </span>
         </div>
 
@@ -160,11 +253,17 @@ function MaterialPricesPage() {
             ) : (
               <div>
                 <p className="font-bold">{String(importResult.message)}</p>
-                <p>処理ファイル数: {String(importResult.totalFiles)} / 全レコード数: {String(importResult.totalRecords)} / 重複排除後: {String(importResult.dedupedCount)}</p>
-                {Array.isArray(importResult.fileErrors) && (
+                <p>処理ファイル数: {String(importResult.totalFiles)} / 取込件数: {String(importResult.insertedCount)}</p>
+                {Array.isArray(importResult.fileErrors) && importResult.fileErrors.length > 0 && (
                   <div className="mt-1 text-red-600">
                     <p>ファイルエラー:</p>
                     {(importResult.fileErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
+                  </div>
+                )}
+                {Array.isArray(importResult.insertErrors) && importResult.insertErrors.length > 0 && (
+                  <div className="mt-1 text-red-600">
+                    <p>挿入エラー:</p>
+                    {(importResult.insertErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
                   </div>
                 )}
               </div>
@@ -190,7 +289,7 @@ function MaterialPricesPage() {
         ))}
       </div>
 
-      {/* 検索バー + 全件削除 */}
+      {/* 検索バー + 操作ボタン */}
       <div className="flex gap-2 mb-4 flex-wrap">
         <input
           type="text"
@@ -210,12 +309,102 @@ function MaterialPricesPage() {
           {totalCount}件
         </span>
         <button
+          onClick={findDuplicates}
+          className="bg-yellow-500 text-white px-3 py-1 rounded text-sm hover:bg-yellow-600"
+        >
+          重複チェック
+        </button>
+        <button
           onClick={handleDeleteAll}
           className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
         >
           {activeTab}全件削除
         </button>
       </div>
+
+      {/* 重複管理パネル */}
+      {showDuplicates && (
+        <div className="mb-4 border border-yellow-300 rounded-lg bg-yellow-50 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-yellow-800">
+              重複チェック結果（{activeTab}）
+              {!loadingDuplicates && ` — ${duplicates.length}グループ`}
+            </h3>
+            <div className="flex gap-2">
+              {duplicates.length > 0 && (
+                <button
+                  onClick={handleKeepAllHighest}
+                  className="bg-orange-500 text-white px-3 py-1 rounded text-sm hover:bg-orange-600"
+                >
+                  全グループ最高単価のみ残す
+                </button>
+              )}
+              <button
+                onClick={() => setShowDuplicates(false)}
+                className="text-gray-500 hover:text-gray-700 px-2"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+
+          {loadingDuplicates ? (
+            <p className="text-gray-500">検索中...</p>
+          ) : duplicates.length === 0 ? (
+            <p className="text-green-700">重複はありません</p>
+          ) : (
+            <div className="space-y-3 max-h-[500px] overflow-y-auto">
+              {duplicates.map((group, gi) => (
+                <div key={gi} className="bg-white border rounded p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="font-bold">{group.name}</span>
+                      {group.specification && <span className="text-gray-500 ml-2">({group.specification})</span>}
+                      <span className="ml-2 text-sm text-red-600">{group.count}件重複</span>
+                    </div>
+                    <button
+                      onClick={() => handleKeepHighest(group)}
+                      className="bg-orange-400 text-white px-2 py-1 rounded text-xs hover:bg-orange-500"
+                    >
+                      最高単価のみ残す
+                    </button>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-500 text-xs">
+                        <th className="text-left p-1">単価</th>
+                        <th className="text-left p-1">単位</th>
+                        <th className="text-left p-1">取込元</th>
+                        <th className="text-center p-1">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map((item, idx) => (
+                        <tr key={item.id} className={idx === 0 ? "bg-green-50" : ""}>
+                          <td className="p-1">
+                            ¥{Number(item.unit_price).toLocaleString("ja-JP")}
+                            {idx === 0 && <span className="text-green-600 text-xs ml-1">(最高)</span>}
+                          </td>
+                          <td className="p-1">{item.unit}</td>
+                          <td className="p-1 text-xs text-gray-500">{item.source_file}</td>
+                          <td className="p-1 text-center">
+                            <button
+                              onClick={() => handleDelete(item.id, item.name)}
+                              className="text-red-500 hover:text-red-700 text-xs"
+                            >
+                              削除
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* テーブル */}
       <div className="overflow-x-auto">

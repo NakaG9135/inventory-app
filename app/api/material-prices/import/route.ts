@@ -7,25 +7,6 @@ import * as path from "path";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
-// セクション区切りの判定
-function isSectionHeader(name: string): "材料費" | "労務費" | null {
-  if (name === "材料費") return "材料費";
-  if (name === "労務費") return "労務費";
-  return null;
-}
-
-function isSectionEnd(name: string): boolean {
-  return name.includes("小計") || name.includes("合計");
-}
-
-// セクションヘッダー・区切り行のみスキップ（データ行は全て取込）
-function isStructuralRow(name: string): boolean {
-  if (name === "材料費" || name === "労務費") return true;
-  if (name.includes("小計") || name.includes("合計")) return true;
-  if (name.includes("【") && name.includes("】")) return true;
-  return false;
-}
-
 export async function POST(request: Request) {
   // 認証チェック
   const authHeader = request.headers.get("authorization");
@@ -65,9 +46,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Excelファイルが見つかりません" }, { status: 400 });
   }
 
-  // 全ファイルから材料・労務データを収集（重複排除なし・全件取込）
+  // 全ファイルからデータを収集
   type PriceRecord = {
-    category: "材料費" | "労務費";
+    category: string;
     name: string;
     specification: string;
     unit: string;
@@ -83,57 +64,46 @@ export async function POST(request: Request) {
       const buf = fs.readFileSync(filePath);
       const wb = XLSX.read(buf, { type: "buffer" });
 
-      // 内訳シートを探す（複数の内訳シートがある場合は全て処理）
-      const uchiwakeSheets = wb.SheetNames.filter((s) => s.includes("内訳"));
-      const sheetsToProcess = uchiwakeSheets.length > 0 ? uchiwakeSheets : [wb.SheetNames[0]];
+      // 完全一致で「内訳」シートのみ（「内訳 (悠介さん)」等は除外）
+      const ws = wb.Sheets["内訳"];
+      if (!ws) {
+        fileErrors.push(`${file}: 「内訳」シートが見つかりません`);
+        continue;
+      }
 
-      for (const sheetName of sheetsToProcess) {
-        const ws = wb.Sheets[sheetName];
-        if (!ws) continue;
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: "" });
 
-        const rows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: "" });
+      // セクション追跡: 「材料費」→データ→「小計」、「労務費」→データ→「小計」
+      let currentCategory: string | null = null;
 
-        // セクション追跡: 「材料費」→データ→「小計」、「労務費」→データ→「小計」
-        let currentCategory: "材料費" | "労務費" | null = null;
+      for (let i = 2; i < rows.length; i++) {
+        const row = rows[i];
+        const name = String(row[1] ?? "").trim();
 
-        for (let i = 2; i < rows.length; i++) {
-          const row = rows[i];
-          const name = String(row[1] ?? "").trim();
+        // セクションヘッダー
+        if (name === "材料費") { currentCategory = "材料費"; continue; }
+        if (name === "労務費") { currentCategory = "労務費"; continue; }
 
-          // セクションヘッダーチェック
-          const sectionHeader = isSectionHeader(name);
-          if (sectionHeader) {
-            currentCategory = sectionHeader;
-            continue;
-          }
+        // セクション終了
+        if (name.includes("小計") || name.includes("合計")) { currentCategory = null; continue; }
 
-          // セクション終了チェック
-          if (isSectionEnd(name)) {
-            currentCategory = null;
-            continue;
-          }
+        // セクション外・空行・構造行はスキップ
+        if (!currentCategory) continue;
+        if (!name) continue;
+        if (name.includes("【") && name.includes("】")) continue;
 
-          // セクション外 or 構造行はスキップ
-          if (!currentCategory) continue;
-          if (isStructuralRow(name)) continue;
+        const specification = String(row[2] ?? "").trim();
+        const unit = String(row[3] ?? "").trim();
+        const unitPrice = parseFloat(String(row[5] ?? "0")) || 0;
 
-          // 名称が空の行もスキップ
-          if (!name) continue;
-
-          const specification = String(row[2] ?? "").trim();
-          const unit = String(row[3] ?? "").trim();
-          const rawPrice = String(row[5] ?? "0");
-          const unitPrice = parseFloat(rawPrice) || 0;
-
-          allRecords.push({
-            category: currentCategory,
-            name,
-            specification,
-            unit,
-            unit_price: unitPrice,
-            source_file: file,
-          });
-        }
+        allRecords.push({
+          category: currentCategory,
+          name,
+          specification,
+          unit,
+          unit_price: unitPrice,
+          source_file: file,
+        });
       }
     } catch (err) {
       fileErrors.push(`${file}: ${err instanceof Error ? err.message : String(err)}`);
@@ -148,12 +118,12 @@ export async function POST(request: Request) {
     });
   }
 
-  // Supabaseにバッチinsert（重複排除なし・全件挿入）
+  // Supabaseにバッチinsert（重複排除なし）
   const supabaseWrite = supabaseServiceKey
     ? createClient(supabaseUrl, supabaseServiceKey)
     : supabaseAuth;
 
-  const BATCH_SIZE = 500;
+  const BATCH_SIZE = 200;
   let insertedCount = 0;
   const insertErrors: string[] = [];
 
@@ -172,7 +142,7 @@ export async function POST(request: Request) {
       .insert(batch);
 
     if (error) {
-      insertErrors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
+      insertErrors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1} (rows ${i + 1}-${i + batch.length}): ${error.message}`);
     } else {
       insertedCount += batch.length;
     }
