@@ -18,13 +18,11 @@ function isSectionEnd(name: string): boolean {
   return name.includes("小計") || name.includes("合計");
 }
 
-// データ行としてスキップすべき行
-function shouldSkipRow(name: string): boolean {
-  if (!name || !name.trim()) return true;
-  if (name.includes("【") || name.includes("】")) return true;
+// セクションヘッダー・区切り行のみスキップ（データ行は全て取込）
+function isStructuralRow(name: string): boolean {
   if (name === "材料費" || name === "労務費") return true;
   if (name.includes("小計") || name.includes("合計")) return true;
-  if (name.includes("雑材料消耗品")) return true;
+  if (name.includes("【") && name.includes("】")) return true;
   return false;
 }
 
@@ -67,7 +65,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Excelファイルが見つかりません" }, { status: 400 });
   }
 
-  // 全ファイルから材料・労務データを収集
+  // 全ファイルから材料・労務データを収集（重複排除なし・全件取込）
   type PriceRecord = {
     category: "材料費" | "労務費";
     name: string;
@@ -77,7 +75,6 @@ export async function POST(request: Request) {
     source_file: string;
   };
   const allRecords: PriceRecord[] = [];
-  let skippedRows = 0;
   const fileErrors: string[] = [];
 
   for (const file of files) {
@@ -116,24 +113,17 @@ export async function POST(request: Request) {
             continue;
           }
 
-          // セクション外のデータはスキップ
-          if (!currentCategory) {
-            continue;
-          }
+          // セクション外 or 構造行はスキップ
+          if (!currentCategory) continue;
+          if (isStructuralRow(name)) continue;
 
-          if (shouldSkipRow(name)) {
-            skippedRows++;
-            continue;
-          }
+          // 名称が空の行もスキップ
+          if (!name) continue;
 
           const specification = String(row[2] ?? "").trim();
           const unit = String(row[3] ?? "").trim();
-          const unitPrice = parseFloat(String(row[5] ?? "0"));
-
-          if (isNaN(unitPrice) || unitPrice <= 0) {
-            skippedRows++;
-            continue;
-          }
+          const rawPrice = String(row[5] ?? "0");
+          const unitPrice = parseFloat(rawPrice) || 0;
 
           allRecords.push({
             category: currentCategory,
@@ -150,71 +140,55 @@ export async function POST(request: Request) {
     }
   }
 
-  // カテゴリ+名称+規格でグルーピングし、最高単価を採用
-  const priceMap = new Map<string, PriceRecord>();
-  for (const rec of allRecords) {
-    const key = `${rec.category}|||${rec.name}|||${rec.specification}`;
-    const existing = priceMap.get(key);
-    if (!existing || rec.unit_price > existing.unit_price) {
-      priceMap.set(key, rec);
-    }
-  }
-
-  const dedupedRecords = Array.from(priceMap.values());
-
-  if (dedupedRecords.length === 0) {
+  if (allRecords.length === 0) {
     return NextResponse.json({
       message: "取込可能なデータがありませんでした",
       totalFiles: files.length,
-      skippedRows,
       fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
     });
   }
 
-  // Supabaseにバッチupsert
+  // Supabaseにバッチinsert（重複排除なし・全件挿入）
   const supabaseWrite = supabaseServiceKey
     ? createClient(supabaseUrl, supabaseServiceKey)
     : supabaseAuth;
 
   const BATCH_SIZE = 500;
-  let upsertedCount = 0;
-  const upsertErrors: string[] = [];
+  let insertedCount = 0;
+  const insertErrors: string[] = [];
 
-  for (let i = 0; i < dedupedRecords.length; i += BATCH_SIZE) {
-    const batch = dedupedRecords.slice(i, i + BATCH_SIZE).map((r) => ({
+  for (let i = 0; i < allRecords.length; i += BATCH_SIZE) {
+    const batch = allRecords.slice(i, i + BATCH_SIZE).map((r) => ({
       category: r.category,
       name: r.name,
       specification: r.specification,
       unit: r.unit,
       unit_price: r.unit_price,
       source_file: r.source_file,
-      updated_at: new Date().toISOString(),
     }));
 
     const { error } = await supabaseWrite
       .from("material_prices")
-      .upsert(batch, { onConflict: "category,name,specification" });
+      .insert(batch);
 
     if (error) {
-      upsertErrors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
+      insertErrors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
     } else {
-      upsertedCount += batch.length;
+      insertedCount += batch.length;
     }
   }
 
-  const materialCount = dedupedRecords.filter((r) => r.category === "材料費").length;
-  const laborCount = dedupedRecords.filter((r) => r.category === "労務費").length;
+  const materialCount = allRecords.filter((r) => r.category === "材料費").length;
+  const laborCount = allRecords.filter((r) => r.category === "労務費").length;
 
   return NextResponse.json({
-    message: `${upsertedCount}件を取込みました（材料費: ${materialCount}件 / 労務費: ${laborCount}件）`,
+    message: `${insertedCount}件を取込みました（材料費: ${materialCount}件 / 労務費: ${laborCount}件）`,
     totalFiles: files.length,
     totalRecords: allRecords.length,
-    dedupedCount: dedupedRecords.length,
     materialCount,
     laborCount,
-    upsertedCount,
-    skippedRows,
+    insertedCount,
     fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
-    upsertErrors: upsertErrors.length > 0 ? upsertErrors : undefined,
+    insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
   });
 }
