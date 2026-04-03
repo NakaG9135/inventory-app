@@ -23,8 +23,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
   }
 
-  // サービスロールキーがない場合は通常のクライアントで認証確認
-  const supabaseAuth = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "");
+  // ユーザーのトークンでクライアントを作成（RLSが適用される）
+  const supabaseAuth = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "", {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
   const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
   if (authError || !user) {
     return NextResponse.json({ error: "認証エラー" }, { status: 401 });
