@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import withAdminRoute from "@/components/withAdminRoute";
+import { isFuzzyMatch } from "@/lib/fuzzyMatch";
 
 interface MaterialPrice {
   id: string;
@@ -47,6 +48,11 @@ function MaterialPricesPage() {
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicates, setDuplicates] = useState<{ name: string; specification: string; count: number; items: MaterialPrice[] }[]>([]);
   const [loadingDuplicates, setLoadingDuplicates] = useState(false);
+
+  // 類似チェック
+  const [showSimilar, setShowSimilar] = useState(false);
+  const [similarGroups, setSimilarGroups] = useState<{ names: string[]; items: MaterialPrice[] }[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -236,6 +242,55 @@ function MaterialPricesPage() {
     fetchData();
   };
 
+  // 類似チェック: 名称が類似（完全一致除く）のグループを検出
+  const findSimilar = async () => {
+    setLoadingSimilar(true);
+    setShowSimilar(true);
+
+    const { data, error } = await supabase
+      .from("material_prices")
+      .select("*")
+      .eq("category", activeTab)
+      .order("name", { ascending: true });
+
+    if (error || !data) {
+      setLoadingSimilar(false);
+      return;
+    }
+
+    const allItems = data as MaterialPrice[];
+    // ユニークな名称を取得
+    const uniqueNames = Array.from(new Set(allItems.map((i) => i.name)));
+
+    // 名称同士をfuzzyMatchで比較し、類似グループを構築
+    const visited = new Set<string>();
+    const groups: { names: string[]; items: MaterialPrice[] }[] = [];
+
+    for (let i = 0; i < uniqueNames.length; i++) {
+      if (visited.has(uniqueNames[i])) continue;
+      const similarNames = [uniqueNames[i]];
+      for (let j = i + 1; j < uniqueNames.length; j++) {
+        if (visited.has(uniqueNames[j])) continue;
+        if (uniqueNames[i] === uniqueNames[j]) continue; // 完全一致は重複チェック側
+        if (isFuzzyMatch(uniqueNames[i], uniqueNames[j])) {
+          similarNames.push(uniqueNames[j]);
+          visited.add(uniqueNames[j]);
+        }
+      }
+      if (similarNames.length >= 2) {
+        visited.add(uniqueNames[i]);
+        const groupItems = allItems
+          .filter((item) => similarNames.includes(item.name))
+          .sort((a, b) => b.unit_price - a.unit_price);
+        groups.push({ names: similarNames, items: groupItems });
+      }
+    }
+
+    groups.sort((a, b) => a.names[0].localeCompare(b.names[0], "ja"));
+    setSimilarGroups(groups);
+    setLoadingSimilar(false);
+  };
+
   const sortIcon = (key: keyof MaterialPrice) => {
     if (sortKey !== key) return "";
     return sortAsc ? " ▲" : " ▼";
@@ -337,6 +392,12 @@ function MaterialPricesPage() {
               重複チェック
             </button>
             <button
+              onClick={findSimilar}
+              className="bg-purple-500 text-white px-3 py-1 rounded text-sm hover:bg-purple-600"
+            >
+              類似チェック
+            </button>
+            <button
               onClick={handleDeleteAll}
               className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
             >
@@ -410,6 +471,78 @@ function MaterialPricesPage() {
                             {idx === 0 && <span className="text-green-600 text-xs ml-1">(最高)</span>}
                           </td>
                           <td className="p-1">{item.unit}</td>
+                          <td className="p-1 text-xs text-gray-500">{item.source_file}</td>
+                          <td className="p-1 text-center">
+                            <button
+                              onClick={() => handleDelete(item.id, item.name)}
+                              className="text-red-500 hover:text-red-700 text-xs"
+                            >
+                              削除
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 類似チェックパネル（中島悠介adminのみ） */}
+      {isOwner && showSimilar && (
+        <div className="mb-4 border border-purple-300 rounded-lg bg-purple-50 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-purple-800">
+              類似チェック結果（{activeTab}）
+              {!loadingSimilar && ` — ${similarGroups.length}グループ`}
+            </h3>
+            <button
+              onClick={() => setShowSimilar(false)}
+              className="text-gray-500 hover:text-gray-700 px-2"
+            >
+              閉じる
+            </button>
+          </div>
+
+          {loadingSimilar ? (
+            <p className="text-gray-500">検索中...</p>
+          ) : similarGroups.length === 0 ? (
+            <p className="text-green-700">類似項目はありません</p>
+          ) : (
+            <div className="space-y-3 max-h-[500px] overflow-y-auto">
+              {similarGroups.map((group, gi) => (
+                <div key={gi} className="bg-white border rounded p-3">
+                  <div className="mb-2">
+                    <span className="text-sm text-purple-700 font-bold">類似名称: </span>
+                    {group.names.map((n, ni) => (
+                      <span key={ni}>
+                        {ni > 0 && <span className="text-gray-400 mx-1">≈</span>}
+                        <span className="bg-purple-100 px-1 rounded">{n}</span>
+                      </span>
+                    ))}
+                    <span className="ml-2 text-sm text-gray-500">({group.items.length}件)</span>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-500 text-xs">
+                        <th className="text-left p-1">名称</th>
+                        <th className="text-left p-1">規格</th>
+                        <th className="text-left p-1">単位</th>
+                        <th className="text-right p-1">単価</th>
+                        <th className="text-left p-1">取込元</th>
+                        <th className="text-center p-1">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map((item) => (
+                        <tr key={item.id} className="hover:bg-gray-50">
+                          <td className="p-1">{item.name}</td>
+                          <td className="p-1">{item.specification}</td>
+                          <td className="p-1">{item.unit}</td>
+                          <td className="p-1 text-right">¥{Number(item.unit_price).toLocaleString("ja-JP")}</td>
                           <td className="p-1 text-xs text-gray-500">{item.source_file}</td>
                           <td className="p-1 text-center">
                             <button
