@@ -43,6 +43,7 @@ export default function Sidebar() {
     { href: "/dashboard/report-drafts", label: "一時保存した日報", adminOnly: false },
     { href: "/dashboard/report-logs", label: "日報ログ", adminOnly: false },
     { href: "/dashboard/profile", label: "登録情報変更", adminOnly: false },
+    { href: "/dashboard/material-prices", label: "材料単価", adminOnly: true },
     { href: "/dashboard/logs", label: "入出庫ログ", adminOnly: true },
     { href: "/dashboard/master", label: "商品マスタ編集", adminOnly: true },
     { href: "/dashboard/vehicles", label: "車両管理", adminOnly: true },
