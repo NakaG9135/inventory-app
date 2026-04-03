@@ -21,6 +21,8 @@ const TABS = [
   { key: "労務費", label: "労務費" },
 ] as const;
 
+const OWNER_NAME = "中島悠介";
+
 function MaterialPricesPage() {
   const [activeTab, setActiveTab] = useState<string>("材料費");
   const [items, setItems] = useState<MaterialPrice[]>([]);
@@ -32,6 +34,10 @@ function MaterialPricesPage() {
   const [sortAsc, setSortAsc] = useState(true);
   const [loading, setLoading] = useState(false);
 
+  // ユーザー名（操作権限判定用）
+  const [userName, setUserName] = useState("");
+  const isOwner = userName === OWNER_NAME;
+
   // インポート関連
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<Record<string, unknown> | null>(null);
@@ -40,6 +46,17 @@ function MaterialPricesPage() {
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicates, setDuplicates] = useState<{ name: string; specification: string; count: number; items: MaterialPrice[] }[]>([]);
   const [loadingDuplicates, setLoadingDuplicates] = useState(false);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from("users_profile").select("name").eq("id", user.id).single();
+        if (data) setUserName(data.name);
+      }
+    };
+    fetchUser();
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -231,46 +248,48 @@ function MaterialPricesPage() {
     <div className="max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">材料単価</h1>
 
-      {/* インポートセクション */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-        <div className="flex items-center gap-4 flex-wrap">
-          <button
-            onClick={handleImport}
-            disabled={importing}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {importing ? "取込中..." : "Excelデータ取込"}
-          </button>
-          <span className="text-sm text-gray-600">
-            Excelの内訳シートから材料費・労務費を自動分類して全件取込
-          </span>
-        </div>
-
-        {importResult && (
-          <div className={`mt-3 p-3 rounded text-sm ${importResult.error ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
-            {importResult.error ? (
-              <p>{String(importResult.error)}</p>
-            ) : (
-              <div>
-                <p className="font-bold">{String(importResult.message)}</p>
-                <p>処理ファイル数: {String(importResult.totalFiles)} / 取込件数: {String(importResult.insertedCount)}</p>
-                {Array.isArray(importResult.fileErrors) && importResult.fileErrors.length > 0 && (
-                  <div className="mt-1 text-red-600">
-                    <p>ファイルエラー:</p>
-                    {(importResult.fileErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
-                  </div>
-                )}
-                {Array.isArray(importResult.insertErrors) && importResult.insertErrors.length > 0 && (
-                  <div className="mt-1 text-red-600">
-                    <p>挿入エラー:</p>
-                    {(importResult.insertErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
-                  </div>
-                )}
-              </div>
-            )}
+      {/* インポートセクション（中島悠介のみ） */}
+      {isOwner && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <button
+              onClick={handleImport}
+              disabled={importing}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {importing ? "取込中..." : "Excelデータ取込"}
+            </button>
+            <span className="text-sm text-gray-600">
+              Excelの内訳シートから材料費・労務費を自動分類して全件取込
+            </span>
           </div>
-        )}
-      </div>
+
+          {importResult && (
+            <div className={`mt-3 p-3 rounded text-sm ${importResult.error ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+              {importResult.error ? (
+                <p>{String(importResult.error)}</p>
+              ) : (
+                <div>
+                  <p className="font-bold">{String(importResult.message)}</p>
+                  <p>処理ファイル数: {String(importResult.totalFiles)} / 取込件数: {String(importResult.insertedCount)}</p>
+                  {Array.isArray(importResult.fileErrors) && importResult.fileErrors.length > 0 && (
+                    <div className="mt-1 text-red-600">
+                      <p>ファイルエラー:</p>
+                      {(importResult.fileErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
+                    </div>
+                  )}
+                  {Array.isArray(importResult.insertErrors) && importResult.insertErrors.length > 0 && (
+                    <div className="mt-1 text-red-600">
+                      <p>挿入エラー:</p>
+                      {(importResult.insertErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* タブ */}
       <div className="flex border-b mb-4">
@@ -308,22 +327,26 @@ function MaterialPricesPage() {
         <span className="text-sm text-gray-500 self-center">
           {totalCount}件
         </span>
-        <button
-          onClick={findDuplicates}
-          className="bg-yellow-500 text-white px-3 py-1 rounded text-sm hover:bg-yellow-600"
-        >
-          重複チェック
-        </button>
-        <button
-          onClick={handleDeleteAll}
-          className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-        >
-          {activeTab}全件削除
-        </button>
+        {isOwner && (
+          <>
+            <button
+              onClick={findDuplicates}
+              className="bg-yellow-500 text-white px-3 py-1 rounded text-sm hover:bg-yellow-600"
+            >
+              重複チェック
+            </button>
+            <button
+              onClick={handleDeleteAll}
+              className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+            >
+              {activeTab}全件削除
+            </button>
+          </>
+        )}
       </div>
 
-      {/* 重複管理パネル */}
-      {showDuplicates && (
+      {/* 重複管理パネル（中島悠介のみ） */}
+      {isOwner && showDuplicates && (
         <div className="mb-4 border border-yellow-300 rounded-lg bg-yellow-50 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-yellow-800">
@@ -441,14 +464,14 @@ function MaterialPricesPage() {
               >
                 取込元{sortIcon("source_file")}
               </th>
-              <th className="border p-2 text-center whitespace-nowrap">操作</th>
+              {isOwner && <th className="border p-2 text-center whitespace-nowrap">操作</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="border p-4 text-center text-gray-400">読込中...</td></tr>
+              <tr><td colSpan={isOwner ? 6 : 5} className="border p-4 text-center text-gray-400">読込中...</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={6} className="border p-4 text-center text-gray-400">データがありません</td></tr>
+              <tr><td colSpan={isOwner ? 6 : 5} className="border p-4 text-center text-gray-400">データがありません</td></tr>
             ) : (
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
@@ -457,14 +480,16 @@ function MaterialPricesPage() {
                   <td className="border p-2">{item.unit}</td>
                   <td className="border p-2 text-right">¥{Number(item.unit_price).toLocaleString("ja-JP")}</td>
                   <td className="border p-2 text-xs text-gray-500">{item.source_file}</td>
-                  <td className="border p-2 text-center">
-                    <button
-                      onClick={() => handleDelete(item.id, item.name)}
-                      className="text-red-500 hover:text-red-700 text-xs"
-                    >
-                      削除
-                    </button>
-                  </td>
+                  {isOwner && (
+                    <td className="border p-2 text-center">
+                      <button
+                        onClick={() => handleDelete(item.id, item.name)}
+                        className="text-red-500 hover:text-red-700 text-xs"
+                      >
+                        削除
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
