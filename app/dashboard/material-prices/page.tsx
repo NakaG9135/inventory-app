@@ -6,6 +6,7 @@ import withAdminRoute from "@/components/withAdminRoute";
 
 interface MaterialPrice {
   id: string;
+  category: string;
   name: string;
   specification: string;
   unit: string;
@@ -15,8 +16,13 @@ interface MaterialPrice {
 }
 
 const PAGE_SIZE = 50;
+const TABS = [
+  { key: "材料費", label: "材料費" },
+  { key: "労務費", label: "労務費" },
+] as const;
 
 function MaterialPricesPage() {
+  const [activeTab, setActiveTab] = useState<string>("材料費");
   const [items, setItems] = useState<MaterialPrice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -34,7 +40,8 @@ function MaterialPricesPage() {
     setLoading(true);
     let query = supabase
       .from("material_prices")
-      .select("*", { count: "exact" });
+      .select("*", { count: "exact" })
+      .eq("category", activeTab);
 
     if (searchName.trim()) query = query.ilike("name", `%${searchName.trim()}%`);
     if (searchSpec.trim()) query = query.ilike("specification", `%${searchSpec.trim()}%`);
@@ -50,16 +57,16 @@ function MaterialPricesPage() {
       setTotalCount(count || 0);
     }
     setLoading(false);
-  }, [searchName, searchSpec, sortKey, sortAsc, page]);
+  }, [activeTab, searchName, searchSpec, sortKey, sortAsc, page]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // 検索時にページをリセット
+  // タブ・検索変更時にページリセット
   useEffect(() => {
     setPage(0);
-  }, [searchName, searchSpec]);
+  }, [activeTab, searchName, searchSpec]);
 
   const handleSort = (key: keyof MaterialPrice) => {
     if (sortKey === key) {
@@ -72,7 +79,7 @@ function MaterialPricesPage() {
   };
 
   const handleImport = async () => {
-    if (!confirm("quotedata/quotedata/ 内の全Excelファイルから材料単価を取込みます。\n同じ材料は単価が高い方を採用します。\n\nよろしいですか？")) return;
+    if (!confirm("quotedata/quotedata/ 内の全Excelファイルから取込みます。\n同じ項目は単価が高い方を採用します。\n\nよろしいですか？")) return;
 
     setImporting(true);
     setImportResult(null);
@@ -108,9 +115,9 @@ function MaterialPricesPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (!confirm("全件削除しますか？この操作は取り消せません。")) return;
+    if (!confirm(`${activeTab}のデータを全件削除しますか？この操作は取り消せません。`)) return;
     if (!confirm("本当に全件削除してもよろしいですか？")) return;
-    const { error } = await supabase.from("material_prices").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    const { error } = await supabase.from("material_prices").delete().eq("category", activeTab);
     if (error) {
       alert("削除に失敗しました: " + error.message);
     } else {
@@ -142,14 +149,8 @@ function MaterialPricesPage() {
             {importing ? "取込中..." : "Excelデータ取込"}
           </button>
           <span className="text-sm text-gray-600">
-            quotedata/quotedata/ 内のExcelファイルから一括取込（同一材料は最高単価を採用）
+            Excelの内訳シートから材料費・労務費を自動分類して取込
           </span>
-          <button
-            onClick={handleDeleteAll}
-            className="ml-auto bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-          >
-            全件削除
-          </button>
         </div>
 
         {importResult && (
@@ -172,7 +173,24 @@ function MaterialPricesPage() {
         )}
       </div>
 
-      {/* 検索バー */}
+      {/* タブ */}
+      <div className="flex border-b mb-4">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+              activeTab === tab.key
+                ? "border-blue-600 text-blue-600 bg-blue-50"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 検索バー + 全件削除 */}
       <div className="flex gap-2 mb-4 flex-wrap">
         <input
           type="text"
@@ -191,6 +209,12 @@ function MaterialPricesPage() {
         <span className="text-sm text-gray-500 self-center">
           {totalCount}件
         </span>
+        <button
+          onClick={handleDeleteAll}
+          className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+        >
+          {activeTab}全件削除
+        </button>
       </div>
 
       {/* テーブル */}
