@@ -64,46 +64,61 @@ export async function POST(request: Request) {
       const buf = fs.readFileSync(filePath);
       const wb = XLSX.read(buf, { type: "buffer" });
 
-      // 完全一致で「内訳」シートのみ（「内訳 (悠介さん)」等は除外）
-      const ws = wb.Sheets["内訳"];
-      if (!ws) {
-        fileErrors.push(`${file}: 「内訳」シートが見つかりません`);
+      // 「内訳」を含むシート全て対象、「表紙」を含むシートは除外
+      const sheetsToProcess = wb.SheetNames.filter(
+        (s) => s.includes("内訳") && !s.includes("表紙")
+      );
+
+      if (sheetsToProcess.length === 0) {
+        fileErrors.push(`${file}: 対象シートが見つかりません`);
         continue;
       }
 
-      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: "" });
+      for (const sheetName of sheetsToProcess) {
+        const ws = wb.Sheets[sheetName];
+        if (!ws) continue;
 
-      // セクション追跡: 「材料費」→データ→「小計」、「労務費」→データ→「小計」
-      let currentCategory: string | null = null;
+        const rows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: "" });
 
-      for (let i = 2; i < rows.length; i++) {
-        const row = rows[i];
-        const name = String(row[1] ?? "").trim();
+        // セクション追跡: 材料費/労務費/それ以外
+        // 「材料費」→小計 = 材料費、「労務費」→小計 = 労務費、それ以外 = その他
+        let currentCategory: string | null = null;
 
-        // セクションヘッダー
-        if (name === "材料費") { currentCategory = "材料費"; continue; }
-        if (name === "労務費") { currentCategory = "労務費"; continue; }
+        for (let i = 2; i < rows.length; i++) {
+          const row = rows[i];
+          const name = String(row[1] ?? "").trim();
 
-        // セクション終了
-        if (name.includes("小計") || name.includes("合計")) { currentCategory = null; continue; }
+          // セクションヘッダー
+          if (name === "材料費") { currentCategory = "材料費"; continue; }
+          if (name === "労務費") { currentCategory = "労務費"; continue; }
 
-        // セクション外・空行・構造行はスキップ
-        if (!currentCategory) continue;
-        if (!name) continue;
-        if (name.includes("【") && name.includes("】")) continue;
+          // セクション終了（小計/合計）
+          if (name.includes("小計") || name.includes("合計")) { currentCategory = null; continue; }
 
-        const specification = String(row[2] ?? "").trim();
-        const unit = String(row[3] ?? "").trim();
-        const unitPrice = parseFloat(String(row[5] ?? "0")) || 0;
+          // 構造行スキップ
+          if (name.includes("【") && name.includes("】")) continue;
+          if (!name) continue;
 
-        allRecords.push({
-          category: currentCategory,
-          name,
-          specification,
-          unit,
-          unit_price: unitPrice,
-          source_file: file,
-        });
+          const specification = String(row[2] ?? "").trim();
+          const unit = String(row[3] ?? "").trim();
+          const rawPrice = parseFloat(String(row[5] ?? ""));
+          const unitPrice = isNaN(rawPrice) ? 0 : rawPrice;
+
+          // 単価が書いてないもの（0または空）は抽出しない
+          if (unitPrice <= 0) continue;
+
+          // セクション外のデータは「その他」
+          const category = currentCategory || "その他";
+
+          allRecords.push({
+            category,
+            name,
+            specification,
+            unit,
+            unit_price: unitPrice,
+            source_file: `${file} [${sheetName}]`,
+          });
+        }
       }
     } catch (err) {
       fileErrors.push(`${file}: ${err instanceof Error ? err.message : String(err)}`);
@@ -118,7 +133,7 @@ export async function POST(request: Request) {
     });
   }
 
-  // Supabaseにバッチinsert（重複排除なし）
+  // Supabaseにバッチinsert
   const supabaseWrite = supabaseServiceKey
     ? createClient(supabaseUrl, supabaseServiceKey)
     : supabaseAuth;
@@ -150,13 +165,15 @@ export async function POST(request: Request) {
 
   const materialCount = allRecords.filter((r) => r.category === "材料費").length;
   const laborCount = allRecords.filter((r) => r.category === "労務費").length;
+  const otherCount = allRecords.filter((r) => r.category === "その他").length;
 
   return NextResponse.json({
-    message: `${insertedCount}件を取込みました（材料費: ${materialCount}件 / 労務費: ${laborCount}件）`,
+    message: `${insertedCount}件を取込みました（材料費: ${materialCount}件 / 労務費: ${laborCount}件 / その他: ${otherCount}件）`,
     totalFiles: files.length,
     totalRecords: allRecords.length,
     materialCount,
     laborCount,
+    otherCount,
     insertedCount,
     fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
     insertErrors: insertErrors.length > 0 ? insertErrors : undefined,

@@ -19,6 +19,7 @@ const PAGE_SIZE = 50;
 const TABS = [
   { key: "材料費", label: "材料費" },
   { key: "労務費", label: "労務費" },
+  { key: "その他", label: "その他" },
 ] as const;
 
 const OWNER_NAME = "中島 悠介admin";
