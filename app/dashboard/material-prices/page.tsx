@@ -54,6 +54,14 @@ function MaterialPricesPage() {
   const [similarGroups, setSimilarGroups] = useState<{ names: string[]; items: MaterialPrice[] }[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
 
+  // 手動追加
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addSpec, setAddSpec] = useState("");
+  const [addUnit, setAddUnit] = useState("");
+  const [addPrice, setAddPrice] = useState("");
+  const [addSubmitting, setAddSubmitting] = useState(false);
+
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -291,6 +299,34 @@ function MaterialPricesPage() {
     setLoadingSimilar(false);
   };
 
+  // 手動追加処理
+  const handleManualAdd = async () => {
+    if (!addName.trim()) { alert("名称を入力してください"); return; }
+    const price = parseFloat(addPrice);
+    if (isNaN(price) || price < 0) { alert("単価を正しく入力してください"); return; }
+
+    setAddSubmitting(true);
+    const { error } = await supabase.from("material_prices").insert({
+      category: activeTab,
+      name: addName.trim(),
+      specification: addSpec.trim(),
+      unit: addUnit.trim(),
+      unit_price: price,
+      source_file: "手動追加",
+    });
+
+    if (error) {
+      alert("追加に失敗しました: " + error.message);
+    } else {
+      setAddName("");
+      setAddSpec("");
+      setAddUnit("");
+      setAddPrice("");
+      fetchData();
+    }
+    setAddSubmitting(false);
+  };
+
   const sortIcon = (key: keyof MaterialPrice) => {
     if (sortKey !== key) return "";
     return sortAsc ? " ▲" : " ▼";
@@ -398,6 +434,12 @@ function MaterialPricesPage() {
               類似チェック
             </button>
             <button
+              onClick={() => setShowAddForm((v) => !v)}
+              className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+            >
+              {showAddForm ? "追加フォーム閉じる" : "手動追加"}
+            </button>
+            <button
               onClick={handleDeleteAll}
               className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
             >
@@ -406,6 +448,39 @@ function MaterialPricesPage() {
           </>
         )}
       </div>
+
+      {/* 手動追加フォーム（中島悠介adminのみ） */}
+      {isOwner && showAddForm && (
+        <div className="mb-4 border border-green-300 rounded-lg bg-green-50 p-4">
+          <h3 className="font-bold text-green-800 mb-3">手動追加（{activeTab}）</h3>
+          <div className="flex gap-2 flex-wrap items-end">
+            <div className="flex-1 min-w-[150px]">
+              <label className="text-xs text-gray-500 block mb-1">名称 *</label>
+              <input type="text" value={addName} onChange={(e) => setAddName(e.target.value)}
+                placeholder="名称" className="border rounded p-2 w-full" />
+            </div>
+            <div className="flex-1 min-w-[120px]">
+              <label className="text-xs text-gray-500 block mb-1">規格</label>
+              <input type="text" value={addSpec} onChange={(e) => setAddSpec(e.target.value)}
+                placeholder="規格" className="border rounded p-2 w-full" />
+            </div>
+            <div className="w-20">
+              <label className="text-xs text-gray-500 block mb-1">単位</label>
+              <input type="text" value={addUnit} onChange={(e) => setAddUnit(e.target.value)}
+                placeholder="m, 個" className="border rounded p-2 w-full" />
+            </div>
+            <div className="w-28">
+              <label className="text-xs text-gray-500 block mb-1">単価 *</label>
+              <input type="number" value={addPrice} onChange={(e) => setAddPrice(e.target.value)}
+                placeholder="0" min="0" className="border rounded p-2 w-full" />
+            </div>
+            <button onClick={handleManualAdd} disabled={addSubmitting}
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50">
+              {addSubmitting ? "追加中..." : "追加"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 重複管理パネル（中島悠介のみ） */}
       {isOwner && showDuplicates && (
