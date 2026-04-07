@@ -77,12 +77,20 @@ export async function POST(request: Request) {
   const newFiles = allFiles.filter((f) => !importedFileNames.has(f));
   const skippedFiles = allFiles.filter((f) => importedFileNames.has(f));
 
-  // 取込済みファイルを削除
+  // 取込済みファイル: olddataにあれば削除、なければolddataに移動
   const deletedFiles: string[] = [];
+  const movedSkippedFiles: string[] = [];
   for (const file of skippedFiles) {
     try {
-      fs.unlinkSync(path.join(dataDir, file));
-      deletedFiles.push(file);
+      const src = path.join(dataDir, file);
+      const dst = path.join(oldDir, file);
+      if (fs.existsSync(dst)) {
+        fs.unlinkSync(src);
+        deletedFiles.push(file);
+      } else {
+        fs.renameSync(src, dst);
+        movedSkippedFiles.push(file);
+      }
     } catch { /* ignore */ }
   }
 
