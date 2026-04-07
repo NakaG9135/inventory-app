@@ -35,18 +35,57 @@ export async function POST(request: Request) {
 
   // Excelファイルの読み取り
   const dataDir = path.join(process.cwd(), "quotedata", "quotedata");
+  const oldDir = path.join(process.cwd(), "quotedata", "olddata");
 
   if (!fs.existsSync(dataDir)) {
     return NextResponse.json({ error: `フォルダが見つかりません: quotedata/quotedata/` }, { status: 400 });
   }
 
-  const files = fs.readdirSync(dataDir).filter((f) => /\.(xlsx|xls)$/i.test(f) && !f.startsWith("~$"));
+  // olddataフォルダがなければ作成
+  if (!fs.existsSync(oldDir)) {
+    fs.mkdirSync(oldDir, { recursive: true });
+  }
 
-  if (files.length === 0) {
+  const allFiles = fs.readdirSync(dataDir).filter((f) => /\.(xlsx|xls)$/i.test(f) && !f.startsWith("~$"));
+
+  if (allFiles.length === 0) {
     return NextResponse.json({ error: "Excelファイルが見つかりません" }, { status: 400 });
   }
 
-  // 全ファイルからデータを収集
+  // DB書き込み用クライアント
+  const supabaseWrite = supabaseServiceKey
+    ? createClient(supabaseUrl, supabaseServiceKey)
+    : supabaseAuth;
+
+  // DBから取込済みファイル名一覧を取得（source_fileから元ファイル名を抽出）
+  const { data: existingData } = await supabaseWrite
+    .from("material_prices")
+    .select("source_file");
+
+  const importedFileNames = new Set<string>();
+  if (existingData) {
+    for (const row of existingData) {
+      // source_fileは "ファイル名.xlsx [内訳]" 形式なので、元ファイル名を抽出
+      const match = String(row.source_file).match(/^(.+?\.(xlsx|xls))/i);
+      if (match) {
+        importedFileNames.add(match[1]);
+      }
+    }
+  }
+
+  // 未取込のファイルのみ対象
+  const newFiles = allFiles.filter((f) => !importedFileNames.has(f));
+  const skippedFiles = allFiles.filter((f) => importedFileNames.has(f));
+
+  if (newFiles.length === 0) {
+    return NextResponse.json({
+      message: "新しいファイルはありません（全て取込済み）",
+      totalFiles: allFiles.length,
+      skippedFiles: skippedFiles.length,
+    });
+  }
+
+  // 新規ファイルからデータを収集
   type PriceRecord = {
     category: string;
     name: string;
@@ -57,8 +96,9 @@ export async function POST(request: Request) {
   };
   const allRecords: PriceRecord[] = [];
   const fileErrors: string[] = [];
+  const processedFiles: string[] = [];
 
-  for (const file of files) {
+  for (const file of newFiles) {
     try {
       const filePath = path.join(dataDir, file);
       const buf = fs.readFileSync(filePath);
@@ -71,6 +111,8 @@ export async function POST(request: Request) {
 
       if (sheetsToProcess.length === 0) {
         fileErrors.push(`${file}: 対象シートが見つかりません`);
+        // シートがなくてもprocessed扱いにして移動する
+        processedFiles.push(file);
         continue;
       }
 
@@ -80,22 +122,15 @@ export async function POST(request: Request) {
 
         const rows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: "" });
 
-        // セクション追跡: 材料費/労務費/それ以外
-        // 「材料費」→小計 = 材料費、「労務費」→小計 = 労務費、それ以外 = その他
         let currentCategory: string | null = null;
 
         for (let i = 2; i < rows.length; i++) {
           const row = rows[i];
           const name = String(row[1] ?? "").trim();
 
-          // セクションヘッダー
           if (name === "材料費") { currentCategory = "材料費"; continue; }
           if (name === "労務費") { currentCategory = "労務費"; continue; }
-
-          // セクション終了（小計/合計）
           if (name.includes("小計") || name.includes("合計")) { currentCategory = null; continue; }
-
-          // 構造行スキップ
           if (name.includes("【") && name.includes("】")) continue;
           if (!name) continue;
 
@@ -104,10 +139,8 @@ export async function POST(request: Request) {
           const rawPrice = parseFloat(String(row[5] ?? ""));
           const unitPrice = isNaN(rawPrice) ? 0 : rawPrice;
 
-          // 単価が書いてないもの（0または空）は抽出しない
           if (unitPrice <= 0) continue;
 
-          // セクション外のデータは「その他」
           const category = currentCategory || "その他";
 
           allRecords.push({
@@ -120,24 +153,14 @@ export async function POST(request: Request) {
           });
         }
       }
+
+      processedFiles.push(file);
     } catch (err) {
       fileErrors.push(`${file}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  if (allRecords.length === 0) {
-    return NextResponse.json({
-      message: "取込可能なデータがありませんでした",
-      totalFiles: files.length,
-      fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
-    });
-  }
-
-  // Supabaseにバッチinsert
-  const supabaseWrite = supabaseServiceKey
-    ? createClient(supabaseUrl, supabaseServiceKey)
-    : supabaseAuth;
-
+  // DBにinsert
   const BATCH_SIZE = 200;
   let insertedCount = 0;
   const insertErrors: string[] = [];
@@ -157,9 +180,27 @@ export async function POST(request: Request) {
       .insert(batch);
 
     if (error) {
-      insertErrors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1} (rows ${i + 1}-${i + batch.length}): ${error.message}`);
+      insertErrors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
     } else {
       insertedCount += batch.length;
+    }
+  }
+
+  // 取込成功したファイルをolddataに移動
+  const movedFiles: string[] = [];
+  const moveErrors: string[] = [];
+
+  if (insertErrors.length === 0) {
+    for (const file of processedFiles) {
+      try {
+        const src = path.join(dataDir, file);
+        const dst = path.join(oldDir, file);
+        // 同名ファイルが既にolddataにある場合は上書き
+        fs.renameSync(src, dst);
+        movedFiles.push(file);
+      } catch (err) {
+        moveErrors.push(`${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
@@ -169,12 +210,16 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     message: `${insertedCount}件を取込みました（材料費: ${materialCount}件 / 労務費: ${laborCount}件 / その他: ${otherCount}件）`,
-    totalFiles: files.length,
+    totalFiles: allFiles.length,
+    newFiles: newFiles.length,
+    skippedFiles: skippedFiles.length,
     totalRecords: allRecords.length,
     materialCount,
     laborCount,
     otherCount,
     insertedCount,
+    movedFiles: movedFiles.length > 0 ? movedFiles : undefined,
+    moveErrors: moveErrors.length > 0 ? moveErrors : undefined,
     fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
     insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
   });

@@ -363,7 +363,21 @@ function MaterialPricesPage() {
               ) : (
                 <div>
                   <p className="font-bold">{String(importResult.message)}</p>
-                  <p>処理ファイル数: {String(importResult.totalFiles)} / 取込件数: {String(importResult.insertedCount)}</p>
+                  <p>
+                    全ファイル: {String(importResult.totalFiles)}件
+                    {importResult.newFiles !== undefined && ` / 新規: ${String(importResult.newFiles)}件`}
+                    {importResult.skippedFiles !== undefined && Number(importResult.skippedFiles) > 0 && ` / 取込済みスキップ: ${String(importResult.skippedFiles)}件`}
+                    {` / 取込件数: ${String(importResult.insertedCount)}`}
+                  </p>
+                  {Array.isArray(importResult.movedFiles) && importResult.movedFiles.length > 0 && (
+                    <p className="text-blue-700 mt-1">{importResult.movedFiles.length}件のファイルをolddataに移動しました</p>
+                  )}
+                  {Array.isArray(importResult.moveErrors) && importResult.moveErrors.length > 0 && (
+                    <div className="mt-1 text-orange-600">
+                      <p>ファイル移動エラー:</p>
+                      {(importResult.moveErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
+                    </div>
+                  )}
                   {Array.isArray(importResult.fileErrors) && importResult.fileErrors.length > 0 && (
                     <div className="mt-1 text-red-600">
                       <p>ファイルエラー:</p>
