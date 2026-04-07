@@ -367,6 +367,7 @@ function MaterialPricesPage() {
                     全ファイル: {String(importResult.totalFiles)}件
                     {importResult.newFiles !== undefined && ` / 新規: ${String(importResult.newFiles)}件`}
                     {importResult.skippedFiles !== undefined && Number(importResult.skippedFiles) > 0 && ` / 取込済みスキップ: ${String(importResult.skippedFiles)}件`}
+                    {importResult.deletedFiles !== undefined && Number(importResult.deletedFiles) > 0 && ` / 重複ファイル削除: ${String(importResult.deletedFiles)}件`}
                     {` / 取込件数: ${String(importResult.insertedCount)}`}
                   </p>
                   {Array.isArray(importResult.movedFiles) && importResult.movedFiles.length > 0 && (

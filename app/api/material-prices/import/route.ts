@@ -73,15 +73,25 @@ export async function POST(request: Request) {
     }
   }
 
-  // 未取込のファイルのみ対象
+  // 未取込のファイルのみ対象、取込済みファイルは削除
   const newFiles = allFiles.filter((f) => !importedFileNames.has(f));
   const skippedFiles = allFiles.filter((f) => importedFileNames.has(f));
+
+  // 取込済みファイルを削除
+  const deletedFiles: string[] = [];
+  for (const file of skippedFiles) {
+    try {
+      fs.unlinkSync(path.join(dataDir, file));
+      deletedFiles.push(file);
+    } catch { /* ignore */ }
+  }
 
   if (newFiles.length === 0) {
     return NextResponse.json({
       message: "新しいファイルはありません（全て取込済み）",
       totalFiles: allFiles.length,
       skippedFiles: skippedFiles.length,
+      deletedFiles: deletedFiles.length > 0 ? deletedFiles.length : undefined,
     });
   }
 
@@ -220,6 +230,7 @@ export async function POST(request: Request) {
     insertedCount,
     movedFiles: movedFiles.length > 0 ? movedFiles : undefined,
     moveErrors: moveErrors.length > 0 ? moveErrors : undefined,
+    deletedFiles: deletedFiles.length > 0 ? deletedFiles.length : undefined,
     fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
     insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
   });
