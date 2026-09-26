@@ -115,25 +115,76 @@ function MaterialPricesPage() {
     setPage(0);
   };
 
-  const handleImport = async () => {
-    if (!confirm("quotedata/quotedata/ 内の全Excelファイルから取込みます。\n\nよろしいですか？")) return;
+  const handleImport = async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []).filter((f) => /\.(xlsx|xls)$/i.test(f.name) && !f.name.startsWith("~$"));
+    if (files.length === 0) {
+      setImportResult({ error: "Excelファイル(.xlsx/.xls)を選択してください" });
+      return;
+    }
+    if (!confirm(`選択した${files.length}件のExcelファイルから取込みます。\n\nよろしいですか？`)) return;
 
     setImporting(true);
     setImportResult(null);
 
+    let newFiles = 0;
+    let skippedFiles = 0;
+    let insertedCount = 0;
+    let materialCount = 0;
+    let laborCount = 0;
+    let otherCount = 0;
+    const fileErrors: string[] = [];
+    const insertErrors: string[] = [];
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch("/api/material-prices/import", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${session?.access_token}`,
-        },
-      });
-      const result = await res.json();
-      setImportResult(result);
-      if (res.ok) {
-        fetchData();
+
+      // Vercelのリクエストサイズ上限を避けるため1ファイルずつ送信
+      for (const file of files) {
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const res = await fetch("/api/material-prices/import", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${session?.access_token}`,
+            },
+            body: formData,
+          });
+          const result = await res.json().catch(() => ({ error: `サーバーエラー (${res.status})` }));
+
+          if (!res.ok || result.error) {
+            fileErrors.push(`${file.name}: ${result.error ?? `エラー (${res.status})`}`);
+            if (res.status === 401 || res.status === 403) break;
+            continue;
+          }
+          if (result.skipped) {
+            skippedFiles++;
+            continue;
+          }
+          if (result.fileError) fileErrors.push(`${file.name}: ${result.fileError}`);
+          if (Array.isArray(result.insertErrors)) insertErrors.push(...result.insertErrors);
+          newFiles++;
+          insertedCount += result.insertedCount ?? 0;
+          materialCount += result.materialCount ?? 0;
+          laborCount += result.laborCount ?? 0;
+          otherCount += result.otherCount ?? 0;
+        } catch (err) {
+          fileErrors.push(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
+
+      setImportResult({
+        message: newFiles === 0 && fileErrors.length === 0
+          ? "新しいファイルはありません（全て取込済み）"
+          : `${insertedCount}件を取込みました（材料費: ${materialCount}件 / 労務費: ${laborCount}件 / その他: ${otherCount}件）`,
+        totalFiles: files.length,
+        newFiles,
+        skippedFiles,
+        insertedCount,
+        fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
+        insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
+      });
+      fetchData();
     } catch (err) {
       setImportResult({ error: `取込エラー: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
@@ -344,15 +395,24 @@ function MaterialPricesPage() {
       {isOwner && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <button
-              onClick={handleImport}
-              disabled={importing}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+            <label
+              className={`bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 ${importing ? "opacity-50 pointer-events-none" : "cursor-pointer"}`}
             >
-              {importing ? "取込中..." : "Excelデータ取込"}
-            </button>
+              {importing ? "取込中..." : "Excelファイルを選択して取込"}
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                multiple
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => {
+                  handleImport(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
             <span className="text-sm text-gray-600">
-              Excelの内訳シートから材料費・労務費を自動分類して全件取込
+              Excelの内訳シートから材料費・労務費を自動分類して取込（複数選択可・取込済みファイルは自動スキップ）
             </span>
           </div>
 
@@ -364,21 +424,11 @@ function MaterialPricesPage() {
                 <div>
                   <p className="font-bold">{String(importResult.message)}</p>
                   <p>
-                    全ファイル: {String(importResult.totalFiles)}件
+                    選択ファイル: {String(importResult.totalFiles)}件
                     {importResult.newFiles !== undefined && ` / 新規: ${String(importResult.newFiles)}件`}
                     {importResult.skippedFiles !== undefined && Number(importResult.skippedFiles) > 0 && ` / 取込済みスキップ: ${String(importResult.skippedFiles)}件`}
-                    {importResult.deletedFiles !== undefined && Number(importResult.deletedFiles) > 0 && ` / 重複ファイル削除: ${String(importResult.deletedFiles)}件`}
                     {` / 取込件数: ${String(importResult.insertedCount)}`}
                   </p>
-                  {Array.isArray(importResult.movedFiles) && importResult.movedFiles.length > 0 && (
-                    <p className="text-blue-700 mt-1">{importResult.movedFiles.length}件のファイルをolddataに移動しました</p>
-                  )}
-                  {Array.isArray(importResult.moveErrors) && importResult.moveErrors.length > 0 && (
-                    <div className="mt-1 text-orange-600">
-                      <p>ファイル移動エラー:</p>
-                      {(importResult.moveErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
-                    </div>
-                  )}
                   {Array.isArray(importResult.fileErrors) && importResult.fileErrors.length > 0 && (
                     <div className="mt-1 text-red-600">
                       <p>ファイルエラー:</p>
