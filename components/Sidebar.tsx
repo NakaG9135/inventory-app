@@ -10,7 +10,7 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-  const { can } = usePermissions();
+  const { can, isSuperAdmin } = usePermissions();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -43,7 +43,7 @@ export default function Sidebar() {
     pageLink("settings"),
     pageLink("permissions"),
     pageLink("operation_logs"),
-    pageLink("employees"),
+    { href: "/dashboard/employees", label: "従業員名簿", show: isSuperAdmin },
   ];
 
   const visibleLinks = links.filter((l) => l.show);

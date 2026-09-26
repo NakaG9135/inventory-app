@@ -5,16 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
-import { LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import { ageFrom, fmtDate, fmtDateTime, serviceLength, type Employee } from "@/lib/employees";
 
 type LastAccess = { user_id: string; last_at: string; ip: string; device_type: string; os: string; os_version: string };
 
 export default function EmployeesPage() {
   const router = useRouter();
-  const { can } = usePermissions();
-  const canView = can("employees", LEVEL_VIEW);
-  const canEdit = can("employees", LEVEL_OPERATE);
+  // 社長専用
+  const { isSuperAdmin } = usePermissions();
+  const canView = isSuperAdmin;
+  const canEdit = isSuperAdmin;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [qualCounts, setQualCounts] = useState<Record<string, string[]>>({});
   const [lastAccess, setLastAccess] = useState<Record<string, LastAccess>>({});
