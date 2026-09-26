@@ -25,7 +25,9 @@ export type PageKey =
   | "master"
   | "vehicles"
   | "workers"
-  | "settings";
+  | "settings"
+  | "permissions"
+  | "operation_logs";
 
 export type PageDef = {
   key: PageKey;
@@ -61,15 +63,18 @@ export const PAGES: PageDef[] = [
     levels: { view: "名簿を見る", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
   { key: "settings", label: "システム設定", href: "/dashboard/settings",
     levels: { view: "設定画面を見る", operate: "登録情報の更新", edit: "操作と同じ" } },
+  { key: "permissions", label: "権限管理", href: "/dashboard/permissions",
+    levels: { view: "権限を見る", operate: "アカウントのプリセット割当・個別設定", edit: "プリセットの中身の変更も" } },
+  { key: "operation_logs", label: "操作ログ", href: "/dashboard/operation-logs",
+    levels: { view: "操作ログを見る", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
 ];
+
+// 社長だけが他の人に許可できるページ（社長以外は変更不可）
+export const PROTECTED_PAGE_KEYS: PageKey[] = ["permissions", "operation_logs"];
 
 // 権限に関係なく全員が使えるページ
 export const ALWAYS_ALLOWED_PATHS = ["/dashboard/profile"];
 
-export const SUPER_ADMIN_PATH = "/dashboard/permissions";
-export const OPERATION_LOGS_PATH = "/dashboard/operation-logs";
-// 社長だけが開けるページ
-export const SUPER_ADMIN_PATHS = [SUPER_ADMIN_PATH, OPERATION_LOGS_PATH];
 
 // URL → 権限キー（一時保存した日報は「日報」の権限に従う）
 export function pageKeyForPath(pathname: string): PageKey | null {

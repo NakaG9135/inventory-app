@@ -7,27 +7,21 @@ import {
   ALWAYS_ALLOWED_PATHS,
   LEVEL_VIEW,
   PAGES,
-  SUPER_ADMIN_PATHS,
   pageKeyForPath,
 } from "@/lib/permissions";
 
 // 表示権限のないページを開いた時に中身を出さない
 export default function PermissionGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { loading, error, isSuperAdmin, can } = usePermissions();
+  const { loading, error, can } = usePermissions();
 
   if (loading) return <p>読み込み中...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
 
   if (ALWAYS_ALLOWED_PATHS.some((p) => pathname.startsWith(p))) return <>{children}</>;
 
-  let allowed = true;
-  if (SUPER_ADMIN_PATHS.some((p) => pathname.startsWith(p))) {
-    allowed = isSuperAdmin;
-  } else {
-    const key = pageKeyForPath(pathname);
-    if (key) allowed = can(key, LEVEL_VIEW);
-  }
+  const key = pageKeyForPath(pathname);
+  const allowed = key ? can(key, LEVEL_VIEW) : true;
 
   if (allowed) return <>{children}</>;
 

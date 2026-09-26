@@ -4,8 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
 import {
+  LEVEL_EDIT,
   LEVEL_LABELS,
+  LEVEL_OPERATE,
+  LEVEL_VIEW,
   PAGES,
+  PROTECTED_PAGE_KEYS,
   type PageKey,
   type PermissionLevel,
 } from "@/lib/permissions";
@@ -85,7 +89,11 @@ function LevelButtons({
 }
 
 export default function PermissionsPage() {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, can } = usePermissions();
+  const canView = can("permissions", LEVEL_VIEW);
+  const canAssign = can("permissions", LEVEL_OPERATE);
+  const canEditPresets = can("permissions", LEVEL_EDIT);
+  const [myId, setMyId] = useState<string | null>(null);
   const [tab, setTab] = useState<"accounts" | "presets">("accounts");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -144,12 +152,33 @@ export default function PermissionsPage() {
   }, []);
 
   useEffect(() => {
-    if (isSuperAdmin) fetchAll();
-  }, [isSuperAdmin, fetchAll]);
+    supabase.auth.getUser().then(({ data }) => setMyId(data.user?.id ?? null));
+  }, []);
+
+  useEffect(() => {
+    if (canView) fetchAll();
+  }, [canView, fetchAll]);
 
   const presetByKey = useMemo(() => new Map(presets.map((p) => [p.key, p])), [presets]);
   const selected = useMemo(() => accounts.find((a) => a.id === selectedId) ?? null, [accounts, selectedId]);
   const editingPreset = presetByKey.get(selectedPreset) ?? null;
+  const myPresetKey = accounts.find((a) => a.id === myId)?.presetKey ?? null;
+
+  // 社長以外は、自分・社長・「権限管理」「操作ログ」・自分のプリセットは変更できない（DB側でも拒否）
+  const accountLock = (a: Account): string | null => {
+    if (a.isSuperAdmin) return "社長の権限は変更できません";
+    if (isSuperAdmin) return null;
+    if (!canAssign) return "閲覧のみの権限のため変更できません";
+    if (a.id === myId) return "自分自身の権限は変更できません";
+    return null;
+  };
+  const pageLocked = (key: PageKey) => !isSuperAdmin && PROTECTED_PAGE_KEYS.includes(key);
+  const presetLock = (p: Preset): string | null => {
+    if (isSuperAdmin) return null;
+    if (!canEditPresets) return "プリセットの変更には権限管理の「編集」が必要です";
+    if (p.key === myPresetKey) return "自分に割り当てられたプリセットは変更できません";
+    return null;
+  };
 
   const accountTitle = (a: Account) => {
     if (a.isSuperAdmin) return "社長";
@@ -199,7 +228,7 @@ export default function PermissionsPage() {
       supabase.rpc("set_preset_level", { p_preset: preset.key, p_page: pageKey, p_level: level })
     );
 
-  if (!isSuperAdmin) return null;
+  if (!canView) return null;
   if (loading) return <p>読み込み中...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
 
@@ -289,7 +318,7 @@ export default function PermissionsPage() {
                     <h2 className="text-lg font-bold">{selected.name}</h2>
                     <p className="text-xs text-gray-500">{selected.email}</p>
                   </div>
-                  {!selected.isSuperAdmin && overrideCount(selected) > 0 && (
+                  {!accountLock(selected) && overrideCount(selected) > 0 && (
                     <button
                       onClick={() => resetAccountToPreset(selected)}
                       disabled={saving !== null}
@@ -304,12 +333,15 @@ export default function PermissionsPage() {
                   <p className="text-sm text-gray-600">社長は常にすべてのページを「編集」できます。変更はできません。</p>
                 ) : (
                   <>
+                    {accountLock(selected) && (
+                      <p className="mb-3 p-2 rounded bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">{accountLock(selected)}</p>
+                    )}
                     <div className="mb-4 p-3 rounded bg-gray-50 border">
                       <label className="text-sm font-medium block mb-1">プリセット</label>
                       <select
                         className="border rounded p-2 w-full sm:w-64 bg-white"
                         value={selected.presetKey ?? ""}
-                        disabled={saving !== null}
+                        disabled={saving !== null || !!accountLock(selected)}
                         onChange={(e) => setAccountPreset(selected, e.target.value)}
                       >
                         {!selected.presetKey && <option value="">未設定</option>}
@@ -330,12 +362,14 @@ export default function PermissionsPage() {
                         const current = selected.levels[page.key] ?? 0;
                         const override = selected.overrides[page.key];
                         const isOverride = override !== null && override !== undefined;
-                        const busy = saving === `${selected.id}:${page.key}` || saving === `${selected.id}:all` || saving === `${selected.id}:preset`;
+                        const locked = !!accountLock(selected) || pageLocked(page.key);
+                        const busy = locked || saving === `${selected.id}:${page.key}` || saving === `${selected.id}:all` || saving === `${selected.id}:preset`;
                         return (
                           <li key={page.key} className="py-3 flex flex-col sm:flex-row sm:items-center gap-2">
                             <div className="sm:w-52 shrink-0">
                               <div className="font-medium">{page.label}</div>
                               <div className="text-xs text-gray-500">{levelDescription(page.key, current)}</div>
+                              {pageLocked(page.key) && <div className="text-xs text-gray-400">社長だけが変更できます</div>}
                               {isOverride ? (
                                 <div className="text-xs">
                                   <span className="text-orange-600">個別設定</span>
@@ -446,18 +480,23 @@ export default function PermissionsPage() {
               <p className="text-xs text-gray-500 mb-3">
                 変更すると、このプリセットのアカウント（{accounts.filter((a) => a.presetKey === editingPreset.key).map((a) => a.name).join("、") || "なし"}）にすぐ反映されます。個別設定したページはそちらが優先されます。
               </p>
+              {presetLock(editingPreset) && (
+                <p className="mb-3 p-2 rounded bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">{presetLock(editingPreset)}</p>
+              )}
               <ul className="divide-y">
                 {PAGES.map((page) => {
                   const current = (editingPreset.levels[page.key] ?? 0) as PermissionLevel;
+                  const locked = !!presetLock(editingPreset) || pageLocked(page.key);
                   return (
                     <li key={page.key} className="py-3 flex flex-col sm:flex-row sm:items-center gap-2">
                       <div className="sm:w-52 shrink-0">
                         <div className="font-medium">{page.label}</div>
                         <div className="text-xs text-gray-500">{levelDescription(page.key, current)}</div>
+                        {pageLocked(page.key) && <div className="text-xs text-gray-400">社長だけが変更できます</div>}
                       </div>
                       <LevelButtons
                         current={current}
-                        disabled={saving !== null}
+                        disabled={saving !== null || locked}
                         onChange={(l) => { if (l !== current) setPresetLevel(editingPreset, page.key, l); }}
                       />
                     </li>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_VIEW } from "@/lib/permissions";
 
 type LogRow = {
   id: number;
@@ -79,7 +80,8 @@ const localDate = (offsetDays = 0) => {
 };
 
 export default function OperationLogsPage() {
-  const { isSuperAdmin } = usePermissions();
+  const { can } = usePermissions();
+  const canView = can("operation_logs", LEVEL_VIEW);
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [debounced, setDebounced] = useState<Filters>(EMPTY);
   const [page, setPage] = useState(0);
@@ -103,11 +105,11 @@ export default function OperationLogsPage() {
   useEffect(() => { setPage(0); }, [debounced]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!canView) return;
     supabase.rpc("operation_log_suggestions").then(({ data }) => {
       if (data) setSuggest(data);
     });
-  }, [isSuperAdmin]);
+  }, [canView]);
 
   const search = useCallback(async () => {
     const id = ++requestId.current;
@@ -141,8 +143,8 @@ export default function OperationLogsPage() {
   }, [debounced, page]);
 
   useEffect(() => {
-    if (isSuperAdmin) search();
-  }, [isSuperAdmin, search]);
+    if (canView) search();
+  }, [canView, search]);
 
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -162,7 +164,7 @@ export default function OperationLogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, suggest.users]);
 
-  if (!isSuperAdmin) return null;
+  if (!canView) return null;
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const inputCls = "border rounded p-2 text-sm w-full bg-white";
