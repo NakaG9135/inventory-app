@@ -79,6 +79,8 @@ export async function POST(request: Request) {
     source_file: string;
   };
   const allRecords: PriceRecord[] = [];
+  // 1件も取れなかった時に原因を調べられるよう、各シートの先頭行を控えておく
+  const diagnostics: { sheet: string; rowCount: number; sampleRows: string[] }[] = [];
 
   try {
     const buf = Buffer.from(await file.arrayBuffer());
@@ -98,6 +100,14 @@ export async function POST(request: Request) {
       if (!ws) continue;
 
       const rows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: "" });
+      diagnostics.push({
+        sheet: sheetName,
+        rowCount: rows.length,
+        sampleRows: rows
+          .slice(0, 15)
+          .map((r, idx) => `${idx + 1}行目: ${r.slice(0, 8).map((c) => String(c).trim().slice(0, 20)).join(" | ")}`)
+          .filter((line) => line.replace(/^\d+行目: /, "").replace(/[ |]/g, "") !== ""),
+      });
 
       let currentCategory: string | null = null;
 
@@ -113,8 +123,7 @@ export async function POST(request: Request) {
 
         const specification = String(row[2] ?? "").trim();
         const unit = String(row[3] ?? "").trim();
-        const rawPrice = parseFloat(String(row[5] ?? ""));
-        const unitPrice = isNaN(rawPrice) ? 0 : rawPrice;
+        const unitPrice = parsePrice(row[5]);
 
         if (unitPrice <= 0) continue;
 
@@ -157,5 +166,14 @@ export async function POST(request: Request) {
     laborCount: allRecords.filter((r) => r.category === "労務費").length,
     otherCount: allRecords.filter((r) => r.category === "その他").length,
     insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
+    diagnostics: allRecords.length === 0 ? diagnostics : undefined,
   });
+}
+
+// "¥1,200" や "1,200円" のような文字列の単価も数値にする
+function parsePrice(value: unknown): number {
+  if (typeof value === "number") return isNaN(value) ? 0 : value;
+  const cleaned = String(value ?? "").replace(/[¥￥,，円\s]/g, "");
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
 }

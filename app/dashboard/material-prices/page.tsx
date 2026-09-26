@@ -134,6 +134,7 @@ function MaterialPricesPage() {
     let otherCount = 0;
     const fileErrors: string[] = [];
     const insertErrors: string[] = [];
+    const zeroRecordFiles: { fileName: string; diagnostics: { sheet: string; rowCount: number; sampleRows: string[] }[] }[] = [];
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -163,6 +164,7 @@ function MaterialPricesPage() {
           }
           if (result.fileError) fileErrors.push(`${file.name}: ${result.fileError}`);
           if (Array.isArray(result.insertErrors)) insertErrors.push(...result.insertErrors);
+          if (Array.isArray(result.diagnostics)) zeroRecordFiles.push({ fileName: file.name, diagnostics: result.diagnostics });
           newFiles++;
           insertedCount += result.insertedCount ?? 0;
           materialCount += result.materialCount ?? 0;
@@ -183,6 +185,7 @@ function MaterialPricesPage() {
         insertedCount,
         fileErrors: fileErrors.length > 0 ? fileErrors : undefined,
         insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
+        zeroRecordFiles: zeroRecordFiles.length > 0 ? zeroRecordFiles : undefined,
       });
       fetchData();
     } catch (err) {
@@ -433,6 +436,22 @@ function MaterialPricesPage() {
                     <div className="mt-1 text-red-600">
                       <p>ファイルエラー:</p>
                       {(importResult.fileErrors as string[]).map((e: string, i: number) => <p key={i}>・{e}</p>)}
+                    </div>
+                  )}
+                  {Array.isArray(importResult.zeroRecordFiles) && importResult.zeroRecordFiles.length > 0 && (
+                    <div className="mt-2 text-orange-700">
+                      <p className="font-bold">単価が読み取れなかったファイル（B列=名称、F列=単価 の行を取込みます）:</p>
+                      {(importResult.zeroRecordFiles as { fileName: string; diagnostics: { sheet: string; rowCount: number; sampleRows: string[] }[] }[]).map((f, i) => (
+                        <div key={i} className="mt-1">
+                          <p>・{f.fileName}</p>
+                          {f.diagnostics.map((d, j) => (
+                            <div key={j} className="ml-3 mt-1">
+                              <p>シート「{d.sheet}」（{d.rowCount}行）の先頭:</p>
+                              <pre className="text-xs bg-white/70 p-2 rounded overflow-x-auto whitespace-pre">{d.sampleRows.join("\n") || "（空）"}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
                     </div>
                   )}
                   {Array.isArray(importResult.insertErrors) && importResult.insertErrors.length > 0 && (
