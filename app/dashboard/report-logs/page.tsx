@@ -149,7 +149,8 @@ export default function ReportLogsPage() {
 
   // --- 会社名編集 ---
   const handleSaveCompany = async (reportId: string) => {
-    await supabase.from("daily_reports").update({ company_name: editingCompanyValue }).eq("id", reportId);
+    const { error } = await supabase.rpc("update_report_company", { p_report_id: reportId, p_company: editingCompanyValue });
+    if (error) { alert(`会社名の保存に失敗しました: ${error.message}`); return; }
     setEditingCompanyId(null);
     setEditingCompanyValue("");
     fetchReports();

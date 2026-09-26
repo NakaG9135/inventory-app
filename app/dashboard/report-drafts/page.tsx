@@ -69,8 +69,9 @@ export default function ReportDraftsPage() {
 
   const deleteDraft = async (id: string) => {
     if (!confirm("この下書きを削除しますか？")) return;
-    await supabase.from("daily_report_materials").delete().eq("report_id", id);
-    await supabase.from("daily_reports").delete().eq("id", id);
+    // 材料は daily_report_materials の ON DELETE CASCADE で一緒に消える
+    const { error } = await supabase.from("daily_reports").delete().eq("id", id).eq("status", "draft");
+    if (error) { alert(`削除に失敗しました: ${error.message}`); return; }
     setDrafts((d) => d.filter((r) => r.id !== id));
   };
 
