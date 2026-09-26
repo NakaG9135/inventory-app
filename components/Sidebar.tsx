@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter, usePathname } from "next/navigation";
 import { usePermissions } from "@/components/PermissionsProvider";
-import { LEVEL_VIEW, PAGES, SUPER_ADMIN_PATH, type PageKey } from "@/lib/permissions";
+import { LEVEL_VIEW, PAGES, type PageKey } from "@/lib/permissions";
 
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-  const { can, isSuperAdmin } = usePermissions();
+  const { can } = usePermissions();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -41,7 +41,8 @@ export default function Sidebar() {
     pageLink("vehicles"),
     pageLink("workers"),
     pageLink("settings"),
-    { href: SUPER_ADMIN_PATH, label: "権限管理", show: isSuperAdmin },
+    pageLink("permissions"),
+    pageLink("operation_logs"),
   ];
 
   const visibleLinks = links.filter((l) => l.show);
