@@ -193,14 +193,10 @@ export default function SitesPage() {
       }
     }
 
-    // 現場名変更の場合、全テーブルを一括更新
+    // 現場名変更の場合、日報・入出庫ログ・貸出記録を一括更新（材料確保は site_id で紐づくため不要）
     if (siteRenamed) {
-      await Promise.all([
-        supabase.from("daily_reports").update({ site_name: newSiteName }).eq("site_name", oldSiteName),
-        supabase.from("inventory_logs").update({ site_name: newSiteName }).eq("site_name", oldSiteName),
-        supabase.from("lending_records").update({ site_name: newSiteName }).eq("site_name", oldSiteName),
-        supabase.from("material_reserve_items").select("id, site_id").then(() => {}), // items are linked by site_id FK, no update needed
-      ]);
+      const { error } = await supabase.rpc("rename_site_references", { p_old: oldSiteName, p_new: newSiteName });
+      if (error) alert(`関連データの現場名変更に失敗しました: ${error.message}`);
     }
 
     setEditingSite(null);
@@ -221,13 +217,8 @@ export default function SitesPage() {
 
     if (!confirm(`会社名を「${oldName}」→「${newName}」に変更しますか？\n関連する全てのデータが更新されます。`)) return;
 
-    await Promise.all([
-      supabase.from("material_reserve_sites").update({ company_name: newName }).eq("company_name", oldName),
-      supabase.from("daily_reports").update({ company_name: newName }).eq("company_name", oldName),
-      supabase.from("inventory_logs").update({ company_name: newName }).eq("company_name", oldName),
-      supabase.from("lending_records").update({ company_name: newName }).eq("company_name", oldName),
-      supabase.from("site_details").update({ company_name: newName }).eq("company_name", oldName),
-    ]);
+    const { error } = await supabase.rpc("rename_company", { p_old: oldName, p_new: newName });
+    if (error) { alert(`会社名の変更に失敗しました: ${error.message}`); return; }
 
     setEditingCompanyOld(null);
     setEditingCompanyNew("");
@@ -237,13 +228,8 @@ export default function SitesPage() {
   const handleDeleteCompany = async (name: string) => {
     if (!confirm(`会社名「${name}」を削除しますか？\n関連する全てのデータから会社名が空欄になります。`)) return;
 
-    await Promise.all([
-      supabase.from("material_reserve_sites").update({ company_name: "" }).eq("company_name", name),
-      supabase.from("daily_reports").update({ company_name: "" }).eq("company_name", name),
-      supabase.from("inventory_logs").update({ company_name: "" }).eq("company_name", name),
-      supabase.from("lending_records").update({ company_name: "" }).eq("company_name", name),
-      supabase.from("site_details").update({ company_name: "" }).eq("company_name", name),
-    ]);
+    const { error } = await supabase.rpc("rename_company", { p_old: name, p_new: "" });
+    if (error) { alert(`会社名の削除に失敗しました: ${error.message}`); return; }
 
     fetchSites();
   };
