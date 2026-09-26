@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 // 画面からアップロードされたExcelファイル（1リクエスト1ファイル）を取込む
 export async function POST(request: Request) {
@@ -48,10 +47,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ fileName, error: "Excelファイル(.xlsx/.xls)ではありません" }, { status: 400 });
   }
 
-  // DB書き込み用クライアント
-  const supabaseWrite = supabaseServiceKey
-    ? createClient(supabaseUrl, supabaseServiceKey)
-    : supabaseAuth;
+  // DB書き込みは本人の権限で行う（操作ログに取込んだ人が残るように）
+  const supabaseWrite = supabaseAuth;
 
   // 取込済みチェック（source_fileは "ファイル名.xlsx [内訳]" 形式）
   const { count: existingCount, error: existingError } = await supabaseWrite

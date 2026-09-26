@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter, usePathname } from "next/navigation";
 import { usePermissions } from "@/components/PermissionsProvider";
-import { LEVEL_VIEW, PAGES, SUPER_ADMIN_PATH, type PageKey } from "@/lib/permissions";
+import { LEVEL_VIEW, OPERATION_LOGS_PATH, PAGES, SUPER_ADMIN_PATH, type PageKey } from "@/lib/permissions";
 
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
@@ -42,6 +42,7 @@ export default function Sidebar() {
     pageLink("workers"),
     pageLink("settings"),
     { href: SUPER_ADMIN_PATH, label: "権限管理", show: isSuperAdmin },
+    { href: OPERATION_LOGS_PATH, label: "操作ログ", show: isSuperAdmin },
   ];
 
   const visibleLinks = links.filter((l) => l.show);

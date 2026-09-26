@@ -67,6 +67,9 @@ export const PAGES: PageDef[] = [
 export const ALWAYS_ALLOWED_PATHS = ["/dashboard/profile"];
 
 export const SUPER_ADMIN_PATH = "/dashboard/permissions";
+export const OPERATION_LOGS_PATH = "/dashboard/operation-logs";
+// 社長だけが開けるページ
+export const SUPER_ADMIN_PATHS = [SUPER_ADMIN_PATH, OPERATION_LOGS_PATH];
 
 // URL → 権限キー（一時保存した日報は「日報」の権限に従う）
 export function pageKeyForPath(pathname: string): PageKey | null {

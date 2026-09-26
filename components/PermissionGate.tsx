@@ -7,7 +7,7 @@ import {
   ALWAYS_ALLOWED_PATHS,
   LEVEL_VIEW,
   PAGES,
-  SUPER_ADMIN_PATH,
+  SUPER_ADMIN_PATHS,
   pageKeyForPath,
 } from "@/lib/permissions";
 
@@ -22,7 +22,7 @@ export default function PermissionGate({ children }: { children: React.ReactNode
   if (ALWAYS_ALLOWED_PATHS.some((p) => pathname.startsWith(p))) return <>{children}</>;
 
   let allowed = true;
-  if (pathname.startsWith(SUPER_ADMIN_PATH)) {
+  if (SUPER_ADMIN_PATHS.some((p) => pathname.startsWith(p))) {
     allowed = isSuperAdmin;
   } else {
     const key = pageKeyForPath(pathname);

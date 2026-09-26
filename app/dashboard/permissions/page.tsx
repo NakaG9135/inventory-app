@@ -211,7 +211,7 @@ export default function PermissionsPage() {
     <div className="max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">権限管理</h1>
       <p className="text-sm text-gray-600 mb-4">
-        各アカウントにプリセット（事務部・工事部作業員・工事部主任・工事部課長・工事部次長・工事部部長）を割り当て、必要ならページごとに個別に変更できます。変更はすぐに保存され、相手の画面にもその場で反映されます。
+        各アカウントにプリセット（総務部事務・総務部経理・工事部作業員・工事部主任・工事部課長・工事部次長・工事部部長）を割り当て、必要ならページごとに個別に変更できます。変更はすぐに保存され、相手の画面にもその場で反映されます。
       </p>
 
       <div className="flex flex-wrap gap-2 text-xs mb-4">
@@ -313,7 +313,7 @@ export default function PermissionsPage() {
                         onChange={(e) => setAccountPreset(selected, e.target.value)}
                       >
                         {!selected.presetKey && <option value="">未設定</option>}
-                        <optgroup label="事務部">
+                        <optgroup label="総務部">
                           {officePresets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
                         </optgroup>
                         <optgroup label="工事部">
@@ -415,7 +415,7 @@ export default function PermissionsPage() {
         <div className="grid md:grid-cols-[240px_1fr] gap-4">
           <div className="bg-white border rounded-lg overflow-hidden h-fit">
             {([
-              ["事務部", officePresets],
+              ["総務部", officePresets],
               ["工事部", constructionPresets],
             ] as const).map(([dept, list]) => (
               <div key={dept}>
