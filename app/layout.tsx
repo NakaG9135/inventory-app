@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import BetaBanner from "@/components/BetaBanner";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import InstallGate from "@/components/InstallGate";
 
 export const metadata: Metadata = {
   title: "在庫管理システム",
@@ -29,8 +30,10 @@ export default function RootLayout({
     <html lang="ja">
       <body>
         <ServiceWorkerRegister />
-        <BetaBanner />
-        {children}
+        <InstallGate>
+          <BetaBanner />
+          {children}
+        </InstallGate>
       </body>
     </html>
   );
