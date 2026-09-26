@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 interface WorkerProfile {
@@ -12,26 +11,12 @@ interface WorkerProfile {
 }
 
 export default function WorkersPage() {
-  const router = useRouter();
   const [workers, setWorkers] = useState<WorkerProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 表示権限はレイアウトの PermissionGate で確認済み
   useEffect(() => {
-    const checkAdmin = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-      const { data } = await supabase
-        .from("users_profile")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      if (!data || data.role !== "admin") {
-        router.push("/dashboard/inventory");
-        return;
-      }
-      fetchWorkers();
-    };
-    checkAdmin();
+    fetchWorkers();
   }, []);
 
   const fetchWorkers = async () => {

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 
 interface ReserveSite {
   id: string;
@@ -39,7 +41,10 @@ export default function ReservesPage() {
   const [openSiteId, setOpenSiteId] = useState<string | null>(null);
   const [logModal, setLogModal] = useState<{ item: ReserveItem; logs: ReserveLog[] } | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>("");
-  const [currentUserRole, setCurrentUserRole] = useState<string>("");
+  const { can } = usePermissions();
+  // 編集: 全現場 / 操作: 自分が担当の現場のみ
+  const canManageSite = (managerName: string | null | undefined) =>
+    can("reserves", LEVEL_EDIT) || (can("reserves", LEVEL_OPERATE) && !!currentUserName && currentUserName === managerName);
   const [searchCategory, setSearchCategory] = useState("");
   const [searchManufacturer, setSearchManufacturer] = useState("");
   const [searchDetail, setSearchDetail] = useState("");
@@ -49,11 +54,8 @@ export default function ReservesPage() {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase.from("users_profile").select("name, role").eq("id", user.id).single();
-        if (data) {
-          setCurrentUserName(data.name);
-          setCurrentUserRole(data.role);
-        }
+        const { data } = await supabase.from("users_profile").select("name").eq("id", user.id).single();
+        if (data) setCurrentUserName(data.name);
       }
     };
     fetchUser();
@@ -314,7 +316,7 @@ export default function ReservesPage() {
                               <td className={`py-2 pr-3 text-xs whitespace-nowrap ${expired ? "text-red-600 font-bold" : "text-gray-600"}`}>
                                 {item.planned_date ? item.planned_date.replace(/-/g, "/") : ""}
                                 {expired && " ※期限超過"}
-                                {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
+                                {canManageSite(site.manager_name) && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openEditDate(item); }}
                                     className="ml-1 text-blue-500 hover:text-blue-700 text-xs"
@@ -324,7 +326,7 @@ export default function ReservesPage() {
                                 )}
                               </td>
                               <td className="py-2">
-                                {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
+                                {canManageSite(site.manager_name) && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
                                     className="text-red-400 hover:text-red-600 text-xs"
@@ -340,7 +342,7 @@ export default function ReservesPage() {
                       </table>
                     </div>
                   )}
-                  {(currentUserRole === "admin" || currentUserName === site.manager_name) && (
+                  {canManageSite(site.manager_name) && (
                     <div className="mt-3 text-right">
                       <button
                         onClick={() => handleDeleteSite(site.id)}

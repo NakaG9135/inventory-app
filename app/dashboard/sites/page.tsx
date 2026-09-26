@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 
 interface SiteInfo {
   siteName: string;
@@ -15,7 +17,10 @@ interface SiteInfo {
 export default function SitesPage() {
   const [sites, setSites] = useState<SiteInfo[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
-  const [currentUserRole, setCurrentUserRole] = useState("");
+  const { can } = usePermissions();
+  // 編集: 全現場・現場名/担当者/会社名の変更 / 操作: 自分が担当の現場の詳細のみ
+  const isSiteAdmin = can("sites", LEVEL_EDIT);
+  const canOperate = can("sites", LEVEL_OPERATE);
   const [openSiteName, setOpenSiteName] = useState<string | null>(null);
   const [editingSite, setEditingSite] = useState<string | null>(null);
   const [editAddress, setEditAddress] = useState("");
@@ -36,11 +41,8 @@ export default function SitesPage() {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase.from("users_profile").select("name, role").eq("id", user.id).single();
-        if (data) {
-          setCurrentUserName(data.name);
-          setCurrentUserRole(data.role);
-        }
+        const { data } = await supabase.from("users_profile").select("name").eq("id", user.id).single();
+        if (data) setCurrentUserName(data.name);
       }
     };
     fetchUser();
@@ -115,7 +117,7 @@ export default function SitesPage() {
   };
 
   const canEdit = (site: SiteInfo) => {
-    return currentUserRole === "admin" || currentUserName === site.manager;
+    return isSiteAdmin || (canOperate && !!currentUserName && currentUserName === site.manager);
   };
 
   const [editSiteName, setEditSiteName] = useState("");
@@ -131,7 +133,7 @@ export default function SitesPage() {
 
   const handleSaveDetails = async (oldSiteName: string) => {
     const newSiteName = editSiteName.trim();
-    const siteRenamed = currentUserRole === "admin" && newSiteName && newSiteName !== oldSiteName;
+    const siteRenamed = isSiteAdmin && newSiteName && newSiteName !== oldSiteName;
 
     // 現場名変更の場合、類似チェック
     if (siteRenamed) {
@@ -176,7 +178,7 @@ export default function SitesPage() {
     }
 
     // adminのみ管理者・会社名を変更
-    if (currentUserRole === "admin") {
+    if (isSiteAdmin) {
       const { data: existingSite } = await supabase
         .from("material_reserve_sites")
         .select("id")
@@ -255,7 +257,7 @@ export default function SitesPage() {
       <h1 className="text-xl font-bold mb-6">現場リスト</h1>
 
       {/* Admin: 会社名マスタ管理 */}
-      {currentUserRole === "admin" && (
+      {isSiteAdmin && (
         <section className="bg-white border rounded-lg mb-6">
           <button
             onClick={() => setShowCompanySection(!showCompanySection)}
@@ -352,7 +354,7 @@ export default function SitesPage() {
                   {/* 住所・事務所 */}
                   {editingSite === site.siteName ? (
                     <div className="mt-3 space-y-2">
-                      {currentUserRole === "admin" && (
+                      {isSiteAdmin && (
                         <div>
                           <label className="text-xs text-gray-500 block mb-1">現場名</label>
                           <input
@@ -383,7 +385,7 @@ export default function SitesPage() {
                           className="border rounded p-2 w-full text-sm"
                         />
                       </div>
-                      {currentUserRole === "admin" && (
+                      {isSiteAdmin && (
                         <>
                           <div>
                             <label className="text-xs text-gray-500 block mb-1">会社名</label>

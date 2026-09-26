@@ -3,6 +3,8 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_OPERATE } from "@/lib/permissions";
 
 interface InventoryItem {
   id: string;
@@ -38,6 +40,8 @@ const emptyGroup = (groupKey: number): MaterialGroup => ({
 });
 
 function ReportForm() {
+  const { can } = usePermissions();
+  const canOperate = can("report", LEVEL_OPERATE);
   const searchParams = useSearchParams();
   const router = useRouter();
   const draftId = searchParams.get("draft");
@@ -932,6 +936,10 @@ function ReportForm() {
       </section>
 
       {/* ボタン */}
+      {!canOperate ? (
+        <p className="text-sm text-gray-500 text-center bg-gray-100 rounded-lg py-3">閲覧のみの権限のため、日報の保存・登録はできません</p>
+      ) : (
+      <>
       <div className="flex gap-3">
         <button onClick={handleSaveDraft} disabled={saving || submitting}
           className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-white py-3 rounded-lg font-bold text-sm disabled:opacity-50">
@@ -945,9 +953,11 @@ function ReportForm() {
       <p className="text-xs text-gray-400 mt-2 text-center">
         一時保存は在庫に反映されません。登録（出庫）で在庫から出庫されます。
       </p>
+      </>
+      )}
 
       {/* 新規部材登録モーダル */}
-      {newItemModal && (
+      {newItemModal && canOperate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 w-full max-w-sm">
             <h3 className="text-sm font-bold mb-1">在庫一覧に新規登録</h3>

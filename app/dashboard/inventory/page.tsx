@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_OPERATE } from "@/lib/permissions";
 import { isFuzzyMatch as isSimilarSite } from "@/lib/fuzzyMatch";
 
 interface OpModal {
@@ -24,6 +26,8 @@ interface ManagerModal {
 }
 
 export default function InventoryPage() {
+  const { can } = usePermissions();
+  const canOperate = can("inventory", LEVEL_OPERATE);
   const [items, setItems] = useState<any[]>([]);
   const [searchCategory, setSearchCategory] = useState("");
   const [searchManufacturer, setSearchManufacturer] = useState("");
@@ -452,7 +456,7 @@ export default function InventoryPage() {
       )}
 
       {/* 操作モーダル */}
-      {opModal && (
+      {opModal && canOperate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-96">
 
@@ -665,7 +669,7 @@ export default function InventoryPage() {
             <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("detail")}>詳細{sortIcon("detail")}</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">在庫数</th>
-            <th className="border px-3 py-2 text-center w-1">操作</th>
+            {canOperate && <th className="border px-3 py-2 text-center w-1">操作</th>}
           </tr>
         </thead>
         <tbody>
@@ -676,6 +680,7 @@ export default function InventoryPage() {
               <td className="border px-3 py-2 whitespace-nowrap">{item.detail}</td>
               <td className="border px-3 py-2 text-center whitespace-nowrap">{item.unit}</td>
               <td className="border px-3 py-2 text-center font-bold whitespace-nowrap">{item.quantity}</td>
+              {canOperate && (
               <td className="border px-3 py-2 text-center w-1">
                 <button
                   onClick={() => setOpModal({ itemId: item.id, quantity: 0, companyName: "", siteName: "", siteConfirmPending: false, plannedYear: "", plannedMonth: "", plannedDay: "" })}
@@ -684,6 +689,7 @@ export default function InventoryPage() {
                   入出庫
                 </button>
               </td>
+              )}
             </tr>
           ))}
         </tbody>

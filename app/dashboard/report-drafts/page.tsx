@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_OPERATE } from "@/lib/permissions";
 
 interface DraftMaterial {
   id: string;
@@ -25,6 +27,8 @@ interface Draft {
 }
 
 export default function ReportDraftsPage() {
+  const { can } = usePermissions();
+  const canOperate = can("report", LEVEL_OPERATE);
   const router = useRouter();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -113,6 +117,8 @@ export default function ReportDraftsPage() {
                     </span>
                     <span className="text-gray-400 text-xs whitespace-nowrap">{isOpen ? "▲" : "▼"}</span>
                   </button>
+                  {canOperate && (
+                  <>
                   <button
                     onClick={() => router.push(`/dashboard/report?draft=${draft.id}`)}
                     className="bg-yellow-400 hover:bg-yellow-500 text-white text-xs px-3 py-1.5 rounded font-bold whitespace-nowrap"
@@ -125,6 +131,8 @@ export default function ReportDraftsPage() {
                   >
                     削除
                   </button>
+                  </>
+                  )}
                 </div>
 
                 {isOpen && (

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 import { isFuzzyMatch } from "@/lib/fuzzyMatch";
 
 interface LendingItem {
@@ -26,7 +28,8 @@ interface LendingRecord {
 }
 
 export default function LendingPage() {
-  const [role, setRole] = useState<string>("user");
+  const { can } = usePermissions();
+  const canOperate = can("lending", LEVEL_OPERATE);
   const [currentUserName, setCurrentUserName] = useState("");
   const [lendingItems, setLendingItems] = useState<LendingItem[]>([]);
   const [records, setRecords] = useState<LendingRecord[]>([]);
@@ -65,11 +68,8 @@ export default function LendingPage() {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase.from("users_profile").select("name, role").eq("id", user.id).single();
-        if (data) {
-          setCurrentUserName(data.name);
-          setRole(data.role);
-        }
+        const { data } = await supabase.from("users_profile").select("name").eq("id", user.id).single();
+        if (data) setCurrentUserName(data.name);
       }
     };
     init();
@@ -311,7 +311,8 @@ export default function LendingPage() {
   };
 
   // フィルタ
-  const isAdmin = role === "admin";
+  // 編集: 貸出物の管理・代行返却・記録削除・返却済み履歴
+  const isAdmin = can("lending", LEVEL_EDIT);
   const visibleRecords = records.filter((r) => {
     if (!isAdmin && r.returned) return false;
     if (searchItem && !(r.lending_items?.name || "").toLowerCase().includes(searchItem.toLowerCase())) return false;
@@ -415,6 +416,7 @@ export default function LendingPage() {
       )}
 
       {/* 貸出登録ボタン */}
+      {canOperate && (
       <div className="mb-4">
         <button
           onClick={() => setShowForm(!showForm)}
@@ -423,9 +425,10 @@ export default function LendingPage() {
           {showForm ? "フォームを閉じる" : "＋ 新規貸出"}
         </button>
       </div>
+      )}
 
       {/* 貸出登録フォーム */}
-      {showForm && (
+      {showForm && canOperate && (
         <section className="bg-white border rounded-lg p-4 mb-6">
           <h2 className="text-sm font-semibold text-gray-500 mb-3">貸出登録</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
@@ -662,7 +665,7 @@ export default function LendingPage() {
                     )}
                     <td className="py-2">
                       <div className="flex gap-1">
-                        {!r.returned && (r.manager_name === currentUserName || r.registrant_name === currentUserName) && (() => {
+                        {!r.returned && canOperate && (r.manager_name === currentUserName || r.registrant_name === currentUserName) && (() => {
                           const today = new Date().toISOString().slice(0, 10);
                           const isBeforeDeadline = today <= r.period_end;
                           return isBeforeDeadline ? (

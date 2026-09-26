@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import withAdminRoute from "@/components/withAdminRoute";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 import { isFuzzyMatch } from "@/lib/fuzzyMatch";
 
 interface MaterialPrice {
@@ -23,9 +24,12 @@ const TABS = [
   { key: "その他", label: "その他" },
 ] as const;
 
-const OWNER_NAME = "中島 悠介admin";
 
-function MaterialPricesPage() {
+export default function MaterialPricesPage() {
+  const { can } = usePermissions();
+  // 操作: Excel取込・手動追加 / 編集: 削除・重複/類似の整理
+  const canOperate = can("material_prices", LEVEL_OPERATE);
+  const canEdit = can("material_prices", LEVEL_EDIT);
   const [activeTab, setActiveTab] = useState<string>("材料費");
   const [items, setItems] = useState<MaterialPrice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -37,8 +41,6 @@ function MaterialPricesPage() {
   const [loading, setLoading] = useState(false);
 
   // ユーザー名（操作権限判定用）
-  const [userName, setUserName] = useState("");
-  const isOwner = userName === OWNER_NAME;
 
   // インポート関連
   const [importing, setImporting] = useState(false);
@@ -61,17 +63,6 @@ function MaterialPricesPage() {
   const [addUnit, setAddUnit] = useState("");
   const [addPrice, setAddPrice] = useState("");
   const [addSubmitting, setAddSubmitting] = useState(false);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.from("users_profile").select("name").eq("id", user.id).single();
-        if (data) setUserName(data.name);
-      }
-    };
-    fetchUser();
-  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -394,8 +385,8 @@ function MaterialPricesPage() {
     <div className="max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">材料単価</h1>
 
-      {/* インポートセクション（中島悠介のみ） */}
-      {isOwner && (
+      {/* インポートセクション */}
+      {canOperate && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
           <div className="flex items-center gap-4 flex-wrap">
             <label
@@ -503,7 +494,7 @@ function MaterialPricesPage() {
         <span className="text-sm text-gray-500 self-center">
           {totalCount}件
         </span>
-        {isOwner && (
+        {canEdit && (
           <>
             <button
               onClick={findDuplicates}
@@ -518,12 +509,6 @@ function MaterialPricesPage() {
               類似チェック
             </button>
             <button
-              onClick={() => setShowAddForm((v) => !v)}
-              className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
-            >
-              {showAddForm ? "追加フォーム閉じる" : "手動追加"}
-            </button>
-            <button
               onClick={handleDeleteAll}
               className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
             >
@@ -531,10 +516,18 @@ function MaterialPricesPage() {
             </button>
           </>
         )}
+        {canOperate && (
+          <button
+            onClick={() => setShowAddForm((v) => !v)}
+            className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+          >
+            {showAddForm ? "追加フォーム閉じる" : "手動追加"}
+          </button>
+        )}
       </div>
 
-      {/* 手動追加フォーム（中島悠介adminのみ） */}
-      {isOwner && showAddForm && (
+      {/* 手動追加フォーム */}
+      {canOperate && showAddForm && (
         <div className="mb-4 border border-green-300 rounded-lg bg-green-50 p-4">
           <h3 className="font-bold text-green-800 mb-3">手動追加（{activeTab}）</h3>
           <div className="flex gap-2 flex-wrap items-end">
@@ -566,8 +559,8 @@ function MaterialPricesPage() {
         </div>
       )}
 
-      {/* 重複管理パネル（中島悠介のみ） */}
-      {isOwner && showDuplicates && (
+      {/* 重複管理パネル */}
+      {canEdit && showDuplicates && (
         <div className="mb-4 border border-yellow-300 rounded-lg bg-yellow-50 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-yellow-800">
@@ -650,8 +643,8 @@ function MaterialPricesPage() {
         </div>
       )}
 
-      {/* 類似チェックパネル（中島悠介adminのみ） */}
-      {isOwner && showSimilar && (
+      {/* 類似チェックパネル */}
+      {canEdit && showSimilar && (
         <div className="mb-4 border border-purple-300 rounded-lg bg-purple-50 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-purple-800">
@@ -757,14 +750,14 @@ function MaterialPricesPage() {
               >
                 取込元{sortIcon("source_file")}
               </th>
-              {isOwner && <th className="border p-2 text-center whitespace-nowrap">操作</th>}
+              {canEdit && <th className="border p-2 text-center whitespace-nowrap">操作</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={isOwner ? 6 : 5} className="border p-4 text-center text-gray-400">読込中...</td></tr>
+              <tr><td colSpan={canEdit ? 6 : 5} className="border p-4 text-center text-gray-400">読込中...</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={isOwner ? 6 : 5} className="border p-4 text-center text-gray-400">データがありません</td></tr>
+              <tr><td colSpan={canEdit ? 6 : 5} className="border p-4 text-center text-gray-400">データがありません</td></tr>
             ) : (
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
@@ -773,7 +766,7 @@ function MaterialPricesPage() {
                   <td className="border p-2">{item.unit}</td>
                   <td className="border p-2 text-right">¥{Number(item.unit_price).toLocaleString("ja-JP")}</td>
                   <td className="border p-2 text-xs text-gray-500">{item.source_file}</td>
-                  {isOwner && (
+                  {canEdit && (
                     <td className="border p-2 text-center">
                       <button
                         onClick={() => handleDelete(item.id, item.name)}
@@ -819,4 +812,3 @@ function MaterialPricesPage() {
   );
 }
 
-export default withAdminRoute(MaterialPricesPage);
