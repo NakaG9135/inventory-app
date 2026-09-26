@@ -35,7 +35,7 @@ export default function PermissionGate({ children }: { children: React.ReactNode
   return (
     <div className="max-w-xl mx-auto mt-10 bg-white border rounded-lg p-6 text-center">
       <p className="text-lg font-bold mb-2">このページを表示する権限がありません</p>
-      <p className="text-sm text-gray-600 mb-4">必要な場合は管理者に権限の変更を依頼してください。</p>
+      <p className="text-sm text-gray-600 mb-4">必要な場合は社長に権限の変更を依頼してください。</p>
       {available.length > 0 && (
         <div className="flex flex-wrap gap-2 justify-center">
           {available.map((p) => (
