@@ -2,8 +2,12 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_OPERATE } from "@/lib/permissions";
 
 export default function SettingsPage() {
+  const { can } = usePermissions();
+  const canOperate = can("settings", LEVEL_OPERATE);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -123,12 +127,16 @@ export default function SettingsPage() {
         />
       </div>
 
-      <button
-        onClick={handleUpdate}
-        className="bg-blue-500 text-white px-4 py-2 rounded"
-      >
-        更新
-      </button>
+      {canOperate ? (
+        <button
+          onClick={handleUpdate}
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+        >
+          更新
+        </button>
+      ) : (
+        <p className="text-sm text-gray-500">閲覧のみの権限のため更新できません</p>
+      )}
 
       {message && <p className="mt-4 text-red-500">{message}</p>}
     </div>

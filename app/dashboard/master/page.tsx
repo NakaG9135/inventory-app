@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import withAdminRoute from "@/components/withAdminRoute";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 import { isFuzzyMatch as isSimilar } from "@/lib/fuzzyMatch";
 
 interface Item {
@@ -14,7 +15,10 @@ interface Item {
   quantity: number;
 }
 
-function MasterPage() {
+export default function MasterPage() {
+  const { can } = usePermissions();
+  const canOperate = can("master", LEVEL_OPERATE);
+  const canEdit = can("master", LEVEL_EDIT);
   const [items, setItems] = useState<Item[]>([]);
   const [form, setForm] = useState({ type: "", maker: "", detail: "", unit: "", quantity: 0 });
   const [loading, setLoading] = useState(false);
@@ -386,6 +390,7 @@ function MasterPage() {
       )}
 
       {/* 新規登録フォーム */}
+      {canOperate && (
       <div className="bg-gray-50 border rounded p-4 mb-6">
         <h2 className="text-sm font-semibold text-gray-600 mb-2">新規登録</h2>
         <div className="grid grid-cols-5 gap-2 mb-2">
@@ -420,6 +425,7 @@ function MasterPage() {
           {loading ? "処理中..." : "登録"}
         </button>
       </div>
+      )}
 
       {/* 類似品確認モーダル */}
       {similarItems.length > 0 && pendingForm && (
@@ -508,12 +514,12 @@ function MasterPage() {
             <th className="border px-3 py-2 text-left whitespace-nowrap w-1 cursor-pointer select-none hover:bg-gray-200" onClick={() => toggleSort("detail")}>詳細{sortIcon("detail")}</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">単位</th>
             <th className="border px-3 py-2 text-center whitespace-nowrap w-1">数量</th>
-            <th className="border px-3 py-2 text-center w-36">操作</th>
+            {canEdit && <th className="border px-3 py-2 text-center w-36">操作</th>}
           </tr>
         </thead>
         <tbody>
           {sortedItems.map((item) =>
-            editingId === item.id ? (
+            editingId === item.id && canEdit ? (
               <tr key={item.id} className="bg-yellow-50">
                 <td className="border px-2 py-1 whitespace-nowrap w-1">
                   <input value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
@@ -550,12 +556,14 @@ function MasterPage() {
                 <td className="border px-3 py-2 whitespace-nowrap w-1">{item.detail}</td>
                 <td className="border px-3 py-2 text-center whitespace-nowrap w-1">{item.unit}</td>
                 <td className="border px-3 py-2 text-center font-bold whitespace-nowrap w-1">{item.quantity}</td>
+                {canEdit && (
                 <td className="border px-3 py-2 text-center space-x-1 w-36">
                   <button onClick={() => startEdit(item)}
                     className="bg-yellow-400 hover:bg-yellow-500 text-white px-2 py-1 rounded text-xs">編集</button>
                   <button onClick={() => deleteItem(item.id)}
                     className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">削除</button>
                 </td>
+                )}
               </tr>
             )
           )}
@@ -566,4 +574,3 @@ function MasterPage() {
   );
 }
 
-export default withAdminRoute(MasterPage);

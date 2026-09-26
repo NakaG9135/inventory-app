@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import withAdminRoute from "@/components/withAdminRoute";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 
 interface Vehicle {
   id: string;
@@ -12,7 +13,10 @@ interface Vehicle {
   fuel_type: string;
 }
 
-function VehiclesPage() {
+export default function VehiclesPage() {
+  const { can } = usePermissions();
+  const canOperate = can("vehicles", LEVEL_OPERATE);
+  const canEdit = can("vehicles", LEVEL_EDIT);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [form, setForm] = useState({ number: "", vehicle_type: "", model: "", fuel_type: "" });
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -75,6 +79,7 @@ function VehiclesPage() {
       <h1 className="text-xl font-bold mb-6">車両管理</h1>
 
       {/* 登録・編集フォーム */}
+      {canOperate && (
       <section className="bg-white border rounded-lg p-4 mb-6">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">
           {editingId ? "車両を編集" : "車両を追加"}
@@ -138,6 +143,7 @@ function VehiclesPage() {
           )}
         </div>
       </section>
+      )}
 
       {/* 車両一覧 */}
       <section className="bg-white border rounded-lg p-4">
@@ -165,18 +171,22 @@ function VehiclesPage() {
                     <td className="py-2 pr-3">{v.fuel_type}</td>
                     <td className="py-2">
                       <div className="flex gap-2">
+                        {canOperate && (
                         <button
                           onClick={() => handleEdit(v)}
                           className="text-blue-500 hover:text-blue-700 text-xs"
                         >
                           編集
                         </button>
+                        )}
+                        {canEdit && (
                         <button
                           onClick={() => handleDelete(v.id)}
                           className="text-red-400 hover:text-red-600 text-xs"
                         >
                           削除
                         </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -190,4 +200,3 @@ function VehiclesPage() {
   );
 }
 
-export default withAdminRoute(VehiclesPage);

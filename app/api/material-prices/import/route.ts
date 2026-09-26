@@ -23,13 +23,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "認証エラー" }, { status: 401 });
   }
 
-  const { data: profile } = await supabaseAuth
-    .from("users_profile")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (!profile || profile.role !== "admin") {
-    return NextResponse.json({ error: "管理者権限が必要です" }, { status: 403 });
+  // 材料単価ページの「操作」以上の権限が必要
+  const { data: level } = await supabaseAuth.rpc("page_level", { p_page: "material_prices" });
+  if (typeof level !== "number" || level < 2) {
+    return NextResponse.json({ error: "材料単価の取込権限がありません" }, { status: 403 });
   }
 
   // アップロードファイルの受け取り

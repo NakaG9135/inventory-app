@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
 import * as XLSX from "xlsx";
 
 interface ReportMaterial {
@@ -42,7 +44,10 @@ export default function ReportLogsPage() {
   const [filterDate, setFilterDate] = useState("");
   const [filterWorker, setFilterWorker] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { can } = usePermissions();
+  // 操作: Excel出力 / 編集: 会社名の修正
+  const canExport = can("report_logs", LEVEL_OPERATE);
+  const canEditCompany = can("report_logs", LEVEL_EDIT);
   const [showFilterSiteSuggest, setShowFilterSiteSuggest] = useState(false);
 
   // Excel出力用
@@ -56,14 +61,6 @@ export default function ReportLogsPage() {
   const [editingCompanyValue, setEditingCompanyValue] = useState("");
 
   useEffect(() => {
-    const checkRole = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.from("users_profile").select("role").eq("id", user.id).single();
-        if (data?.role === "admin") setIsAdmin(true);
-      }
-    };
-    checkRole();
     const fetchSiteNames = async () => {
       const [logs, reports, reserves] = await Promise.all([
         supabase.from("inventory_logs").select("site_name, company_name").not("site_name", "is", null),
@@ -343,10 +340,10 @@ export default function ReportLogsPage() {
         </button>
       </div>
 
-      {/* Admin: Excel出力 */}
-      {isAdmin && (
+      {/* Excel出力 */}
+      {canExport && (
         <section className="bg-white border rounded-lg p-4 mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 mb-3">Excel出力（admin）</h2>
+          <h2 className="text-sm font-semibold text-gray-500 mb-3">Excel出力</h2>
           <div className="flex gap-2 flex-wrap items-end">
             <div className="relative">
               <label className="text-xs text-gray-500 block mb-1">現場名（任意）</label>
@@ -451,7 +448,7 @@ export default function ReportLogsPage() {
                       続きを入力
                     </button>
                   )}
-                  {isAdmin && (
+                  {canExport && (
                     <button
                       onClick={() => exportSingleReport(report)}
                       className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-1.5 rounded font-bold whitespace-nowrap"
@@ -469,7 +466,7 @@ export default function ReportLogsPage() {
                     <div className="space-y-2">
                       <div>
                         <span className="text-xs text-gray-400 block">会社名</span>
-                        {isAdmin && editingCompanyId === report.id ? (
+                        {canEditCompany && editingCompanyId === report.id ? (
                           <div className="flex gap-1 items-center mt-1">
                             <select
                               value={editingCompanyValue}
@@ -513,7 +510,7 @@ export default function ReportLogsPage() {
                         ) : (
                           <span>
                             {report.company_name || "未登録"}
-                            {isAdmin && (
+                            {canEditCompany && (
                               <button
                                 onClick={() => { setEditingCompanyId(report.id); setEditingCompanyValue(report.company_name || ""); }}
                                 className="text-blue-500 text-xs ml-2"

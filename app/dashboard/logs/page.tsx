@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import withAdminRoute from "@/components/withAdminRoute";
 
-function LogsPage() {
+export default function LogsPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [filters, setFilters] = useState({
     username: "",
@@ -175,4 +174,3 @@ function LogsPage() {
   );
 }
 
-export default withAdminRoute(LogsPage);

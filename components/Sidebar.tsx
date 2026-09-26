@@ -3,12 +3,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter, usePathname } from "next/navigation";
+import { usePermissions } from "@/components/PermissionsProvider";
+import { LEVEL_VIEW, PAGES, SUPER_ADMIN_PATH, type PageKey } from "@/lib/permissions";
 
 export default function Sidebar() {
-  const [role, setRole] = useState<string>("user");
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const { can, isSuperAdmin } = usePermissions();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -16,42 +18,33 @@ export default function Sidebar() {
   };
 
   useEffect(() => {
-    const fetchRole = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase
-          .from("users_profile")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-        if (data) setRole(data.role);
-      }
-    };
-    fetchRole();
-  }, []);
-
-  useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
+  const pageLink = (key: PageKey) => {
+    const page = PAGES.find((p) => p.key === key)!;
+    return { href: page.href, label: page.label, show: can(key, LEVEL_VIEW) };
+  };
+
   const links = [
-    { href: "/dashboard/inventory", label: "在庫一覧", adminOnly: false },
-    { href: "/dashboard/reserves", label: "材料確保", adminOnly: false },
-    { href: "/dashboard/lending", label: "貸出管理", adminOnly: false },
-    { href: "/dashboard/sites", label: "現場リスト", adminOnly: false },
-    { href: "/dashboard/report", label: "日報", adminOnly: false },
-    { href: "/dashboard/report-drafts", label: "一時保存した日報", adminOnly: false },
-    { href: "/dashboard/report-logs", label: "日報ログ", adminOnly: false },
-    { href: "/dashboard/profile", label: "登録情報変更", adminOnly: false },
-    { href: "/dashboard/material-prices", label: "材料単価", adminOnly: true },
-    { href: "/dashboard/logs", label: "入出庫ログ", adminOnly: true },
-    { href: "/dashboard/master", label: "商品マスタ編集", adminOnly: true },
-    { href: "/dashboard/vehicles", label: "車両管理", adminOnly: true },
-    { href: "/dashboard/workers", label: "作業員名簿", adminOnly: true },
-    { href: "/dashboard/settings", label: "システム設定", adminOnly: true },
+    pageLink("inventory"),
+    pageLink("reserves"),
+    pageLink("lending"),
+    pageLink("sites"),
+    pageLink("report"),
+    { href: "/dashboard/report-drafts", label: "一時保存した日報", show: can("report", LEVEL_VIEW) },
+    pageLink("report_logs"),
+    { href: "/dashboard/profile", label: "登録情報変更", show: true },
+    pageLink("material_prices"),
+    pageLink("logs"),
+    pageLink("master"),
+    pageLink("vehicles"),
+    pageLink("workers"),
+    pageLink("settings"),
+    { href: SUPER_ADMIN_PATH, label: "権限管理", show: isSuperAdmin },
   ];
 
-  const visibleLinks = links.filter((l) => !l.adminOnly || role === "admin");
+  const visibleLinks = links.filter((l) => l.show);
 
   return (
     <>
