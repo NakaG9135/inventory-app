@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
-import { LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import EmployeeSubTable, { type FieldDef } from "@/components/EmployeeSubTable";
 import {
   DEPARTMENTS,
@@ -51,9 +50,10 @@ const LOCATION_STATUS: Record<string, string> = {
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { can } = usePermissions();
-  const canView = can("employees", LEVEL_VIEW);
-  const canEdit = can("employees", LEVEL_OPERATE);
+  // 社長専用
+  const { isSuperAdmin } = usePermissions();
+  const canView = isSuperAdmin;
+  const canEdit = isSuperAdmin;
   const [tab, setTab] = useState<TabKey>("basic");
   const [emp, setEmp] = useState<Employee | null>(null);
   const [form, setForm] = useState<Employee | null>(null);

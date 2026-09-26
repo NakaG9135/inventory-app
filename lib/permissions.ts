@@ -27,8 +27,7 @@ export type PageKey =
   | "workers"
   | "settings"
   | "permissions"
-  | "operation_logs"
-  | "employees";
+  | "operation_logs";
 
 export type PageDef = {
   key: PageKey;
@@ -68,12 +67,13 @@ export const PAGES: PageDef[] = [
     levels: { view: "権限を見る", operate: "アカウントのプリセット割当・個別設定", edit: "プリセットの中身の変更も" } },
   { key: "operation_logs", label: "操作ログ", href: "/dashboard/operation-logs",
     levels: { view: "操作ログを見る", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
-  { key: "employees", label: "従業員名簿", href: "/dashboard/employees",
-    levels: { view: "名簿・接続/位置ログを見る", operate: "名簿の追加・編集", edit: "操作と同じ" } },
 ];
 
 // 社長だけが他の人に許可できるページ（社長以外は変更不可）
-export const PROTECTED_PAGE_KEYS: PageKey[] = ["permissions", "operation_logs", "employees"];
+export const PROTECTED_PAGE_KEYS: PageKey[] = ["permissions", "operation_logs"];
+
+// 権限管理の対象外で、社長だけが開けるページ（他の人には存在自体を見せない）
+export const SUPER_ADMIN_ONLY_PATHS = ["/dashboard/employees"];
 
 // 権限に関係なく全員が使えるページ
 export const ALWAYS_ALLOWED_PATHS = ["/dashboard/profile"];
