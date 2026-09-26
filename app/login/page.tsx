@@ -84,6 +84,9 @@ export default function LoginPage() {
         .update({ failed_attempts: 0 })
         .eq("email", email);
 
+      // 接続ログに「ログイン」として記録する
+      try { sessionStorage.setItem("justLoggedIn", "1"); sessionStorage.removeItem("accessLogged"); } catch { /* 無視 */ }
+
       // 画面が切り替わるまで「ログイン中…」のままにする
       router.push("/dashboard");
     } catch (err) {

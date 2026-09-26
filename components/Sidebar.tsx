@@ -43,6 +43,7 @@ export default function Sidebar() {
     pageLink("settings"),
     pageLink("permissions"),
     pageLink("operation_logs"),
+    pageLink("employees"),
   ];
 
   const visibleLinks = links.filter((l) => l.show);
