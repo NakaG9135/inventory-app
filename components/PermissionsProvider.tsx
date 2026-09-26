@@ -42,12 +42,22 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       await refresh();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || cancelled) return;
-      // 最上位管理者が権限を変えたら、開いている画面にすぐ反映する
+      // 社長が権限・プリセット・割り当てを変えたら、開いている画面にすぐ反映する
       channel = supabase
         .channel(`permissions-${user.id}`)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "user_page_permissions", filter: `user_id=eq.${user.id}` },
+          () => { refresh(); }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "user_presets", filter: `user_id=eq.${user.id}` },
+          () => { refresh(); }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "permission_preset_levels" },
           () => { refresh(); }
         )
         .subscribe();
