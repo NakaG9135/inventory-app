@@ -23,18 +23,18 @@ export function pickDraftSheet(sheetNames: string[]): string {
   );
 }
 
-function toNumber(value: unknown): number | null {
+export function toNumber(value: unknown): number | null {
   if (typeof value === "number") return isNaN(value) ? null : value;
   const s = String(value ?? "").normalize("NFKC").replace(/[¥,\s円]/g, "");
   if (!s || !/^-?\d+(\.\d+)?$/.test(s)) return null;
   return parseFloat(s);
 }
 
-function text(value: unknown): string {
+export function text(value: unknown): string {
   return displayText(String(value ?? "").trim());
 }
 
-type Columns = { no: number; name: number; spec: number; unit: number; qty: number; price: number; note: number };
+export type Columns = { no: number; name: number; spec: number; unit: number; qty: number; price: number; note: number };
 
 const HEADER_LABELS: [keyof Columns, string[]][] = [
   ["no", ["番号"]],
@@ -47,7 +47,7 @@ const HEADER_LABELS: [keyof Columns, string[]][] = [
 ];
 
 // 見出し行（番号・名称・規格…）を探して列の位置を決める。見つからなければ A〜H 列の標準配置
-function findHeader(rows: unknown[][]): { headerRow: number; cols: Columns } {
+export function findHeader(rows: unknown[][]): { headerRow: number; cols: Columns } {
   const defaults: Columns = { no: 0, name: 1, spec: 2, unit: 3, qty: 4, price: 5, note: 7 };
   for (let r = 0; r < Math.min(rows.length, 15); r++) {
     const labels = (rows[r] ?? []).map(cleanLabel);
@@ -98,8 +98,16 @@ export function parseDraftSheet(ws: XLSX.WorkSheet): { groups: QuoteGroup[]; war
     if (label === "内訳書") continue;
 
     // 工事区分の見出し（番号が入っている行）
-    if (/^\d+$/.test(noText.normalize("NFKC")) && name) {
+    if (/^[0-9０-９]+$/.test(noText) && name) {
       group = { id: newId("g"), no: noText.normalize("NFKC"), name, spec, items: [], notes: [] };
+      groups.push(group);
+      section = "other";
+      lastItem = null;
+      continue;
+    }
+    // 工事区分の中の小区分（①②…）。「① 材料費」はその区分の材料費の見出し、それ以外は別の工事区分として扱う
+    if (/^[①-⑳]$/.test(noText) && name && label !== "材料費" && label !== "労務費") {
+      group = { id: newId("g"), no: String(groups.length + 1), name, spec, items: [], notes: [] };
       groups.push(group);
       section = "other";
       lastItem = null;
@@ -110,7 +118,8 @@ export function parseDraftSheet(ws: XLSX.WorkSheet): { groups: QuoteGroup[]; war
       if (label === "材料費") { section = "material"; lastItem = null; continue; }
       if (label === "労務費") { section = "labor"; lastItem = null; continue; }
       if (label.includes("小計")) { section = "other"; lastItem = null; continue; }
-      if (label.includes("合計") || /^(\d+\.?)?計$/.test(label)) { lastItem = null; continue; }
+      // 「【 合 計 】」「【 1. 計 】」「【 2-①. 計 】」
+      if (label.includes("合計") || /^[\d\-.]*計$/.test(label)) { lastItem = null; continue; }
     }
 
     // ※の注記

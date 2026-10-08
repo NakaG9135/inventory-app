@@ -172,6 +172,10 @@ export function applyPriceTable(items: QuoteItem[], index: PriceIndex, staleDays
   return items.map((item) => {
     if (item.auto || item.source === "draft" || item.source === "manual" || item.source === "auto") return item;
     const hit = lookupPrice(index, item, staleDays, today);
+    if (!hit && item.fallback) {
+      const f = item.fallback;
+      return { ...item, unitPrice: f.unitPrice, source: "case", priceDate: f.date, priceFile: f.file, priceSpec: "", stale: isStale(f.date, staleDays, today) };
+    }
     if (!hit) return { ...item, unitPrice: null, source: "none", priceDate: null, priceFile: "", priceSpec: "", stale: false };
     return {
       ...item,

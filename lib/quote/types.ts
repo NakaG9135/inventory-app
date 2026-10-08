@@ -12,8 +12,8 @@ export const SECTION_LABELS: Record<Section, string> = {
 // 自動計算する行（雑材料消耗品＝端数調整、返納整備費＝レンタル使用料×5%）
 export type AutoKind = "misc" | "return";
 
-// 単価の出どころ
-export type PriceSource = "draft" | "table" | "manual" | "auto" | "none";
+// 単価の出どころ（case＝単価表になく、元にした過去の見積りの単価を使ったもの）
+export type PriceSource = "draft" | "table" | "manual" | "auto" | "none" | "case";
 
 export type QuoteItem = {
   id: string;
@@ -34,6 +34,11 @@ export type QuoteItem = {
   stale: boolean;
   note: string;
   auto?: AutoKind;
+  // 単価表にない時に使う単価（過去の見積りから作った下書きの、その見積りでの単価）
+  fallback?: { unitPrice: number; date: string | null; file: string };
+  // 材料に合わせて自動で足した（added）・直した（updated）労務の行。
+  // from＝元の材料の行id。sameQty＝材料の数量に合わせる。touched＝手で直したので以後は連動しない
+  link?: { from: string; kind: "added" | "updated"; sameQty: boolean; touched: boolean };
 };
 
 export type QuoteGroup = {
