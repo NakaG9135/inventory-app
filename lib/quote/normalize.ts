@@ -25,6 +25,11 @@ export function cleanLabel(value: unknown): string {
     .replace(/[\s【】]/g, "");
 }
 
+// ※の注意書きの先頭の「※」を除く（画面では※を別に表示し、Excelでは※を付けて出す）
+export function stripNoteMark(value: string): string {
+  return String(value ?? "").replace(/^[\s　]*[※＊*][\s　]*/, "");
+}
+
 // 外字の㎟を画面・Excelで読める文字に戻す
 export function displayText(value: string): string {
   return String(value ?? "").replace(//g, "㎟");

@@ -1,6 +1,7 @@
 import type ExcelJS from "exceljs";
 import { isBlankItem, type CoverCalc, type GroupCalc } from "./calc";
-import type { CoverExtra, CoverInfo, QuoteGroup, QuoteItem, QuoteSettings } from "./types";
+import { stripNoteMark } from "./normalize";
+import type { CoverExtra, CoverInfo, FixedRemarks, QuoteGroup, QuoteItem, QuoteSettings } from "./types";
 
 // 今までの見積書と同じ書式（表紙「見積書」＋「内訳」）のExcelを作る
 
@@ -28,6 +29,7 @@ export type ExportInput = {
   cover: CoverInfo;
   date: Date;
   coverNotes: string[];
+  fixedRemarks: FixedRemarks;
   groups: QuoteGroup[];
   calcs: GroupCalc[];
   extras: CoverExtra[];
@@ -44,9 +46,14 @@ type DetailLine =
   | { kind: "subtotal"; key: "material" | "labor" }
   | { kind: "note"; text: string }
   | { kind: "blank" }
-  | { kind: "total"; no: string };
+  | { kind: "total"; label: string };
 
-function detailLines(group: QuoteGroup, calc: GroupCalc): DetailLine[] {
+// 工事区分が1つだけの見積りは、過去の見積りと同じく「計」ではなく「合計」にする
+function totalLabel(group: QuoteGroup, groupCount: number): string {
+  return groupCount === 1 ? "【　　合　　計　　】" : `【　　${group.no}.　　計　　】`;
+}
+
+function detailLines(group: QuoteGroup, calc: GroupCalc, groupCount: number): DetailLine[] {
   const lines: DetailLine[] = [{ kind: "header", no: group.no, name: group.name, spec: group.spec }];
   const push = (items: QuoteItem[]) => {
     for (const item of items) {
@@ -73,12 +80,13 @@ function detailLines(group: QuoteGroup, calc: GroupCalc): DetailLine[] {
     if (materials.length + labor.length > 0) lines.push({ kind: "blank" });
     push(other);
   }
-  for (const n of group.notes) lines.push({ kind: "note", text: n });
+  // ※の注意書き（「計」の上）
+  for (const n of group.notes) if (stripNoteMark(n).trim()) lines.push({ kind: "note", text: stripNoteMark(n).trim() });
   // 区分の計がページの最後の行に来るよう空行で埋める
   const used = lines.length + 1;
   const pages = Math.max(1, Math.ceil(used / ROWS_PER_PAGE));
   for (let i = used; i < pages * ROWS_PER_PAGE; i++) lines.push({ kind: "blank" });
-  lines.push({ kind: "total", no: group.no });
+  lines.push({ kind: "total", label: totalLabel(group, groupCount) });
   return lines;
 }
 
@@ -121,7 +129,7 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
   let r = 3;
   input.groups.forEach((group, gi) => {
     const calc = input.calcs[gi];
-    const lines = detailLines(group, calc);
+    const lines = detailLines(group, calc, input.groups.length);
     const start = r;
     let sectionFirst = 0;
     const subtotalRows: number[] = [];
@@ -177,10 +185,11 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
           break;
         }
         case "note":
+          row.getCell(1).value = "※";
           row.getCell(2).value = line.text;
           break;
         case "total": {
-          row.getCell(2).value = `【　　${line.no}.　　計　　】`;
+          row.getCell(2).value = line.label;
           const refs = [...subtotalRows, ...otherRows].map((x) => `G${x}`);
           row.getCell(7).value = { formula: refs.length > 0 ? refs.join("+") : "0", result: calc.total };
           totals.push(`G${r}`);
@@ -271,16 +280,17 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
 
   type CoverLine = { name: string; spec?: string; unit: string; qty: number; price?: number; amount: ExcelJS.CellValue; note?: string };
   const body: CoverLine[] = [];
+  const fr = input.fixedRemarks;
   input.groups.forEach((g, i) => {
-    body.push({ name: g.name, spec: g.spec, unit: "式", qty: 1, amount: { formula: `内訳!${totals[i]}`, result: cc.groupTotals[i] } });
+    body.push({ name: g.name, spec: g.spec, unit: "式", qty: 1, amount: { formula: `内訳!${totals[i]}`, result: cc.groupTotals[i] }, note: g.remark });
   });
-  body.push({ name: "撤去労務費", unit: "式", qty: 1, amount: cc.removal });
+  body.push({ name: "撤去労務費", unit: "式", qty: 1, amount: cc.removal, note: fr.removal });
   for (const e of input.extras) {
-    body.push({ name: e.name, spec: e.spec, unit: e.unit, qty: e.qty, price: e.unitPrice, amount: null });
+    body.push({ name: e.name, spec: e.spec, unit: e.unit, qty: e.qty, price: e.unitPrice, amount: null, note: e.remark });
   }
-  body.push({ name: "諸経費", unit: "式", qty: 1, amount: cc.overhead });
+  body.push({ name: "諸経費", unit: "式", qty: 1, amount: cc.overhead, note: fr.overhead });
   const welfareIndex = body.length;
-  body.push({ name: "法定福利費", unit: "式", qty: 1, amount: null });
+  body.push({ name: "法定福利費", unit: "式", qty: 1, amount: null, note: fr.welfare });
 
   let r = 11;
   const first = r;
@@ -298,6 +308,7 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     row.getCell(9).value = line.price ?? null;
     if (line.amount !== null) row.getCell(10).value = line.amount;
     else if (line.price !== undefined) row.getCell(10).value = { formula: `H${r}*I${r}`, result: line.qty * line.price };
+    row.getCell(11).value = line.note?.trim() || null;
     r++;
   });
 
@@ -309,11 +320,12 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     result: cc.welfare,
   };
   const ratePct = `${Math.round(settings.welfareRate * 10000) / 100}％`;
-  const notes: { value: ExcelJS.CellValue; numFmt?: string }[] = [
+  const notes: { value: ExcelJS.CellValue; numFmt?: string; mark?: boolean }[] = [
     { value: { formula: `J${welfareRow}`, result: cc.welfare }, numFmt: '"見積金額には社会保険事業主負担である法定福利費"#,##0"円を含む。"' },
     { value: cc.welfareLabor, numFmt: `"（労務費総額"#,##0"円×社会保険加入率100％×社会保険料率${ratePct}）"` },
     { value: "本見積書は『「建設技能者の更なる処遇改善」に関わる見積提出要領』を理解・了解の上作成した。" },
-    ...input.coverNotes.filter((n) => n.trim()).map((n) => ({ value: n.trim() as ExcelJS.CellValue })),
+    // ※の注意書き（税抜小計の上）。過去の見積りと同じくA列に※、B列に文章
+    ...input.coverNotes.map(stripNoteMark).filter((n) => n.trim()).map((n) => ({ value: n.trim() as ExcelJS.CellValue, mark: true })),
   ];
   for (const n of notes) {
     ws.getRow(r).height = 21;
@@ -322,6 +334,7 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     const cell = ws.getCell(`B${r}`);
     cell.value = n.value;
     if (n.numFmt) cell.numFmt = n.numFmt;
+    if (n.mark) ws.getCell(`A${r}`).value = "※";
     r++;
   }
   ws.getRow(r).height = 21;

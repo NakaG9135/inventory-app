@@ -74,6 +74,34 @@ export function mainUnit(entry: NameOption | null): string {
   return entry ? (top(entry.units) ?? "") : "";
 }
 
+// ========== 備考 ==========
+
+const DITTO = /^[〃″"]$/;
+
+// 工事区分の中の行ごとの備考。「〃」は上の行と同じ備考として読む
+function resolvedNotes(items: { note?: string }[]): string[] {
+  let prev = "";
+  return items.map((i) => {
+    const n = String(i.note ?? "").trim();
+    if (DITTO.test(n)) return prev;
+    prev = n;
+    return n;
+  });
+}
+
+// 備考の候補（過去の見積りでよく使った順）
+export function noteOptions(caseGroups: CaseGroup[], extra: string[] = []): string[] {
+  const counts = new Map<string, number>();
+  for (const g of caseGroups) {
+    for (const i of g.items) {
+      const n = String(i.note ?? "").trim();
+      if (n && !i.auto) countUp(counts, n);
+    }
+  }
+  for (const n of extra) if (!counts.has(n)) counts.set(n, 0);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")).map(([n]) => n);
+}
+
 // ========== 材料 → 労務の組み合わせ ==========
 
 type LaborStat = {
@@ -89,6 +117,8 @@ type MaterialStat = { seen: number; labors: Map<string, LaborStat> };
 export type PairModel = {
   byNameSpec: Map<string, MaterialStat>;
   byName: Map<string, MaterialStat>;
+  // 労務の名称ごとの出てきた回数と備考の回数
+  laborNotes: Map<string, { seen: number; notes: Map<string, number> }>;
 };
 
 export type LaborSuggestion = {
@@ -97,6 +127,8 @@ export type LaborSuggestion = {
   unit: string;
   // 材料と同じ数量にするか（過去に数量が違っていた組み合わせは空欄で入れる）
   sameQty: boolean;
+  // 過去にその労務によく付いていた備考（掘削埋戻し別途など）
+  note: string;
 };
 
 // 「電線 （解体用）」→「電線」
@@ -169,8 +201,20 @@ function record(map: Map<string, MaterialStat>, key: string, material: PairItem,
 }
 
 export function learnPairs(caseGroups: CaseGroup[]): PairModel {
-  const model: PairModel = { byNameSpec: new Map(), byName: new Map() };
+  const model: PairModel = { byNameSpec: new Map(), byName: new Map(), laborNotes: new Map() };
   for (const g of caseGroups) {
+    const notes = resolvedNotes(g.items);
+    g.items.forEach((i, idx) => {
+      if (i.section !== "labor" || !normKey(i.name)) return;
+      const k = normKey(i.name);
+      let stat = model.laborNotes.get(k);
+      if (!stat) {
+        stat = { seen: 0, notes: new Map() };
+        model.laborNotes.set(k, stat);
+      }
+      stat.seen += 1;
+      if (notes[idx]) countUp(stat.notes, notes[idx]);
+    });
     for (const { material, labor } of pairInGroup(g.items)) {
       record(model.byNameSpec, nameSpecKey(material.name, material.spec), material, labor);
       record(model.byName, baseName(material.name), material, labor);
@@ -201,5 +245,14 @@ export function suggestLabor(model: PairModel, material: { name: string; spec: s
     spec: copy ? material.spec : (top(l.specs) ?? ""),
     unit: top(l.units) ?? "",
     sameQty: l.sameQty * 2 >= l.count,
+    note: usualNote(model, l.name),
   };
+}
+
+// その労務に半分以上の見積りで付いていた備考
+function usualNote(model: PairModel, laborName: string): string {
+  const stat = model.laborNotes.get(normKey(laborName));
+  if (!stat) return "";
+  const note = top(stat.notes);
+  return note && stat.notes.get(note)! * 2 >= stat.seen ? note : "";
 }

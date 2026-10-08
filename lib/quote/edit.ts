@@ -130,6 +130,7 @@ export function commitMaterial(
         extraSpecs: kind === "added" ? [] : base.extraSpecs,
         unit: sug!.unit || base.unit,
         qty: sug!.sameQty ? material.qty : base.qty,
+        note: kind === "added" ? sug!.note : base.note,
         link: { from: material.id, kind, sameQty: sug!.sameQty, touched: false },
       },
       ctx.index,
