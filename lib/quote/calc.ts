@@ -16,6 +16,11 @@ export function isBlankItem(item: QuoteItem): boolean {
   return !item.auto && !item.name.trim() && !item.spec.trim() && item.qty === null;
 }
 
+// 法定福利費の基準に加える区分外の保守費（電気施設保守点検補修費など）
+export function isMaintenance(item: QuoteItem, group: QuoteGroup): boolean {
+  return item.section === "other" && /保守点検/.test(item.name + group.name);
+}
+
 export function lineAmount(item: QuoteItem): number {
   if (item.qty === null || item.unitPrice === null) return 0;
   return item.qty * item.unitPrice;
@@ -98,7 +103,7 @@ export function calcGroup(group: QuoteGroup, s: QuoteSettings): GroupCalc {
   const materialSubtotal = sum((i) => i.section === "material");
   const laborSubtotal = sum((i) => i.section === "labor");
   const otherTotal = sum((i) => i.section === "other");
-  const maintenanceLabor = sum((i) => i.section === "other" && /保守点検/.test(i.name + group.name));
+  const maintenanceLabor = sum((i) => isMaintenance(i, group));
   return {
     items,
     materialSubtotal,
