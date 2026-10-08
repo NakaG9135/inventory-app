@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import SuggestInput, { type SuggestOption } from "@/components/SuggestInput";
 import { supabase } from "@/lib/supabaseClient";
@@ -17,7 +18,7 @@ import {
   type QuoteCaseInfo,
 } from "@/lib/quote/cases";
 import { fetchAllCaseGroups, fetchCase, fetchCaseInfos } from "@/lib/quote/caseStore";
-import { buildCatalog, learnPairs, mainUnit, nameOptions, specOptions } from "@/lib/quote/catalog";
+import { buildCatalog, learnPairs, mainUnit, nameOptions, noteOptions, specOptions } from "@/lib/quote/catalog";
 import {
   addItem,
   blankGroup,
@@ -42,9 +43,11 @@ import {
 } from "@/lib/quote/prices";
 import {
   DEFAULT_SETTINGS,
+  EMPTY_FIXED_REMARKS,
   SECTION_LABELS,
   type CoverExtra,
   type CoverInfo,
+  type FixedRemarks,
   type QuoteGroup,
   type QuoteItem,
   type QuoteSettings,
@@ -186,7 +189,8 @@ export default function QuoteBuilderPage() {
   const [groups, setGroups] = useState<QuoteGroup[]>([]);
   const [cover, setCover] = useState<CoverInfo>({ client: "", title: "", companyLines: DEFAULT_COMPANY_LINES });
   const [date, setDate] = useState(todayString());
-  const [coverNotes, setCoverNotes] = useState("");
+  const [coverNotes, setCoverNotes] = useState<string[]>([]);
+  const [fixedRemarks, setFixedRemarks] = useState<FixedRemarks>(EMPTY_FIXED_REMARKS);
   const [extras, setExtras] = useState<CoverExtra[]>([{ id: newId("x"), ...EXTRA_PRESETS[0] }]);
   const [settings, setSettings] = useState<QuoteSettings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
@@ -212,6 +216,7 @@ export default function QuoteBuilderPage() {
 
   const catalog = useMemo(() => buildCatalog(index, caseGroups), [index, caseGroups]);
   const pairModel = useMemo(() => learnPairs(caseGroups), [caseGroups]);
+  const noteOpts = useMemo(() => noteOptions(caseGroups, ["※支給品"]).map((n) => ({ value: n })), [caseGroups]);
   const nameOpts = useMemo(() => {
     const out = {} as Record<Section, SuggestOption[]>;
     for (const s of SECTIONS) out[s] = nameOptions(catalog, s).map((n) => ({ value: displayText(n.name), hint: mainUnit(n) }));
@@ -410,7 +415,8 @@ export default function QuoteBuilderPage() {
       const data = await buildQuoteWorkbook({
         cover,
         date: when,
-        coverNotes: coverNotes.split("\n"),
+        coverNotes,
+        fixedRemarks,
         groups,
         calcs,
         extras,
@@ -615,10 +621,6 @@ export default function QuoteBuilderPage() {
                   onChange={(e) => setCover({ ...cover, companyLines: e.target.value.split("\n") })}
                 />
               </label>
-              <label className="text-sm">
-                表紙の備考（1行に1つ。例：解体工事の見積りは別途）
-                <textarea rows={3} className={`${input} w-full`} value={coverNotes} onChange={(e) => setCoverNotes(e.target.value)} />
-              </label>
             </div>
           </section>
 
@@ -672,6 +674,7 @@ export default function QuoteBuilderPage() {
                           <th className="p-1 border text-right">数量</th>
                           <th className="p-1 border text-right">単価</th>
                           <th className="p-1 border text-right">金額</th>
+                          <th className="p-1 border">備考</th>
                           <th className="p-1 border">単価の出どころ</th>
                           <th className="p-1 border"></th>
                         </tr>
@@ -777,6 +780,15 @@ export default function QuoteBuilderPage() {
                                 />
                               </td>
                               <td className="p-1 border text-right whitespace-nowrap">{amount === null ? "" : num(amount)}</td>
+                              <td className="p-1 border min-w-[8rem] text-xs">
+                                <SuggestInput
+                                  className="w-full border rounded px-1"
+                                  value={original.note}
+                                  options={noteOpts}
+                                  placeholder="備考"
+                                  onChange={(v) => updateItem(g.id, item.id, { note: v })}
+                                />
+                              </td>
                               <td className="p-1 border">
                                 {!blank && (
                                   <div className="flex items-center gap-1 flex-wrap">
@@ -823,7 +835,7 @@ export default function QuoteBuilderPage() {
                           );
                         })}
                         <tr className="bg-gray-50 text-xs">
-                          <td className="p-1 border" colSpan={9}>
+                          <td className="p-1 border" colSpan={10}>
                             <div className="flex items-center gap-2 flex-wrap">
                               {SECTIONS.map((s) => (
                                 <button
@@ -845,11 +857,16 @@ export default function QuoteBuilderPage() {
                       </tbody>
                     </table>
                   </div>
-                  {g.notes.length > 0 && (
-                    <ul className="text-xs text-gray-600 mt-1">
-                      {g.notes.map((n, i) => <li key={i}>{n}</li>)}
-                    </ul>
-                  )}
+                  <div className="mt-2 max-w-3xl">
+                    <p className="text-xs text-gray-600 mb-1">
+                      ※の注意書き（内訳の「{groups.length === 1 ? "合計" : `${g.no}. 計`}」の上に入ります）
+                    </p>
+                    <NoteLines
+                      notes={g.notes}
+                      placeholder="例：掘削埋戻しは別途"
+                      onChange={(notes) => updateGroup(g.id, (x) => ({ ...x, notes }))}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -919,46 +936,82 @@ export default function QuoteBuilderPage() {
               </button>
             </div>
 
-            <table className="text-sm mb-3">
-              <tbody>
-                {groups.map((g, i) => (
-                  <tr key={g.id}>
-                    <td className="pr-6 py-0.5">{g.no}. {g.name}</td>
-                    <td className="text-right">{yen(coverCalc.groupTotals[i])}</td>
+            <h3 className="text-sm font-bold mt-2 mb-1">見積書の行と摘要</h3>
+            <div className="overflow-x-auto">
+              <table className="text-sm mb-3">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500">
+                    <th className="pr-6 font-normal"></th>
+                    <th className="text-right font-normal">金額</th>
+                    <th className="pl-4 font-normal">摘要（見積書の右端の欄）</th>
                   </tr>
-                ))}
-                <tr>
-                  <td className="pr-6 py-0.5">撤去労務費 <span className="text-xs text-gray-500">（労務費 {yen(coverCalc.labor)} × {Math.round(settings.removalRate * 100)}%）</span></td>
-                  <td className="text-right">{yen(coverCalc.removal)}</td>
-                </tr>
-                {extras.map((x) => (
-                  <tr key={x.id}>
-                    <td className="pr-6 py-0.5">{x.name}</td>
-                    <td className="text-right">{yen(x.qty * x.unitPrice)}</td>
+                </thead>
+                <tbody>
+                  {groups.map((g, i) => (
+                    <tr key={g.id}>
+                      <td className="pr-6 py-0.5">{g.no}. {g.name}</td>
+                      <td className="text-right whitespace-nowrap">{yen(coverCalc.groupTotals[i])}</td>
+                      <td className="pl-4 py-0.5">
+                        <input className={`${input} w-56`} value={g.remark ?? ""} onChange={(e) => updateGroup(g.id, (x) => ({ ...x, remark: e.target.value }))} />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="pr-6 py-0.5">撤去労務費 <span className="text-xs text-gray-500">（労務費 {yen(coverCalc.labor)} × {Math.round(settings.removalRate * 100)}%）</span></td>
+                    <td className="text-right whitespace-nowrap">{yen(coverCalc.removal)}</td>
+                    <td className="pl-4 py-0.5">
+                      <input className={`${input} w-56`} value={fixedRemarks.removal} onChange={(e) => setFixedRemarks({ ...fixedRemarks, removal: e.target.value })} />
+                    </td>
                   </tr>
-                ))}
-                <tr>
-                  <td className="pr-6 py-0.5">諸経費 <span className="text-xs text-gray-500">（約{Math.round(settings.overheadRate * 100)}%、税抜小計を{coverCalc.roundUnit.toLocaleString("ja-JP")}円単位にそろえる）</span></td>
-                  <td className="text-right">{yen(coverCalc.overhead)}</td>
-                </tr>
-                <tr>
-                  <td className="pr-6 py-0.5">法定福利費 <span className="text-xs text-gray-500">（労務費総額 {yen(coverCalc.welfareLabor)} × {(settings.welfareRate * 100).toFixed(2)}%）</span></td>
-                  <td className="text-right">{yen(coverCalc.welfare)}</td>
-                </tr>
-                <tr className="border-t">
-                  <td className="pr-6 py-0.5 font-bold">税抜小計</td>
-                  <td className="text-right font-bold">{yen(coverCalc.subtotal)}</td>
-                </tr>
-                <tr>
-                  <td className="pr-6 py-0.5">消費税</td>
-                  <td className="text-right">{yen(coverCalc.tax)}</td>
-                </tr>
-                <tr>
-                  <td className="pr-6 py-0.5 font-bold text-lg">合計金額</td>
-                  <td className="text-right font-bold text-lg">{yen(coverCalc.total)}</td>
-                </tr>
-              </tbody>
-            </table>
+                  {extras.map((x) => (
+                    <tr key={x.id}>
+                      <td className="pr-6 py-0.5">{x.name}</td>
+                      <td className="text-right whitespace-nowrap">{yen(x.qty * x.unitPrice)}</td>
+                      <td className="pl-4 py-0.5">
+                        <input className={`${input} w-56`} value={x.remark ?? ""} onChange={(e) => updateExtra(x.id, { remark: e.target.value })} />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="pr-6 py-0.5">諸経費 <span className="text-xs text-gray-500">（約{Math.round(settings.overheadRate * 100)}%、税抜小計を{coverCalc.roundUnit.toLocaleString("ja-JP")}円単位にそろえる）</span></td>
+                    <td className="text-right whitespace-nowrap">{yen(coverCalc.overhead)}</td>
+                    <td className="pl-4 py-0.5">
+                      <input className={`${input} w-56`} value={fixedRemarks.overhead} onChange={(e) => setFixedRemarks({ ...fixedRemarks, overhead: e.target.value })} />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="pr-6 py-0.5">法定福利費 <span className="text-xs text-gray-500">（労務費総額 {yen(coverCalc.welfareLabor)} × {(settings.welfareRate * 100).toFixed(2)}%）</span></td>
+                    <td className="text-right whitespace-nowrap">{yen(coverCalc.welfare)}</td>
+                    <td className="pl-4 py-0.5">
+                      <input className={`${input} w-56`} value={fixedRemarks.welfare} onChange={(e) => setFixedRemarks({ ...fixedRemarks, welfare: e.target.value })} />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="py-2">
+                      <p className="text-xs text-gray-600 mb-1">※の注意書き（見積書の「10％対象 税抜小計」の上に入ります）</p>
+                      <div className="max-w-3xl">
+                        <NoteLines notes={coverNotes} placeholder="例：解体工事の見積りは別途" onChange={setCoverNotes} />
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="pr-6 py-0.5 font-bold">税抜小計</td>
+                    <td className="text-right font-bold whitespace-nowrap">{yen(coverCalc.subtotal)}</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td className="pr-6 py-0.5">消費税</td>
+                    <td className="text-right whitespace-nowrap">{yen(coverCalc.tax)}</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td className="pr-6 py-0.5 font-bold text-lg">合計金額</td>
+                    <td className="text-right font-bold text-lg whitespace-nowrap">{yen(coverCalc.total)}</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
             <button type="button" className="text-sm text-blue-600 hover:underline" onClick={() => setShowSettings((v) => !v)}>
               {showSettings ? "計算の設定を閉じる" : "計算の設定を変える"}

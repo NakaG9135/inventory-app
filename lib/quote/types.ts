@@ -47,8 +47,10 @@ export type QuoteGroup = {
   name: string;
   spec: string;
   items: QuoteItem[];
-  // ※から始まる注記
+  // 工事区分の「計」の上に入れる※の注意書き（1行に1つ）
   notes: string[];
+  // 見積書の行の摘要
+  remark?: string;
 };
 
 // 表紙の追加行（運搬費・北電申請など）
@@ -59,7 +61,14 @@ export type CoverExtra = {
   unit: string;
   qty: number;
   unitPrice: number;
+  // 見積書の摘要
+  remark?: string;
 };
+
+// 見積書の決まった行（撤去労務費・諸経費・法定福利費）の摘要
+export type FixedRemarks = { removal: string; overhead: string; welfare: string };
+
+export const EMPTY_FIXED_REMARKS: FixedRemarks = { removal: "", overhead: "", welfare: "" };
 
 export type CoverInfo = {
   client: string;
