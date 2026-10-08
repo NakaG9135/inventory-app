@@ -1,0 +1,650 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { calcCover, calcGroup, withAutoItems } from "@/lib/quote/calc";
+import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
+import { displayText } from "@/lib/quote/normalize";
+import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
+import {
+  applyPriceTable,
+  buildPriceIndex,
+  suggestPrices,
+  type PriceCandidate,
+  type PriceIndex,
+  type PriceRow,
+} from "@/lib/quote/prices";
+import {
+  DEFAULT_SETTINGS,
+  SECTION_LABELS,
+  type CoverExtra,
+  type CoverInfo,
+  type QuoteGroup,
+  type QuoteItem,
+  type QuoteSettings,
+} from "@/lib/quote/types";
+
+const COMPANY_STORAGE_KEY = "quote.companyLines";
+const DEFAULT_COMPANY_LINES = [
+  "　　　札幌市白石区菊水5条2丁目4-5",
+  "　　丸弘佐々木電設株式会社",
+  "　　　電　　　話　　（011）832-8551",
+  "",
+  "",
+  "　　　 登録番号　　T9-4300-0102-3675",
+];
+
+// 表紙によく入る行（過去の見積りから）
+const EXTRA_PRESETS: Omit<CoverExtra, "id">[] = [
+  { name: "運搬費", spec: "", unit: "回", qty: 2, unitPrice: 3000 },
+  { name: "運搬費", spec: "4ｔユニック車", unit: "回", qty: 2, unitPrice: 30000 },
+  { name: "普通運搬費", spec: "", unit: "回", qty: 2, unitPrice: 3000 },
+  { name: "北電申請書類作成・提出", spec: "", unit: "件", qty: 1, unitPrice: 20000 },
+];
+
+const yen = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`;
+const num = (n: number | null) => (n === null ? "" : n.toLocaleString("ja-JP"));
+
+function todayString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function loadCompanyLines(): string[] {
+  try {
+    const saved = localStorage.getItem(COMPANY_STORAGE_KEY);
+    if (saved) {
+      const lines = JSON.parse(saved);
+      if (Array.isArray(lines)) return lines.map(String);
+    }
+  } catch {
+    // 保存できない環境では既定値
+  }
+  return DEFAULT_COMPANY_LINES;
+}
+
+function saveCompanyLines(lines: string[]) {
+  try {
+    localStorage.setItem(COMPANY_STORAGE_KEY, JSON.stringify(lines));
+  } catch {
+    // 保存できなくても続行
+  }
+}
+
+async function fetchAllPrices(): Promise<PriceRow[]> {
+  const rows: PriceRow[] = [];
+  const size = 1000;
+  for (let from = 0; ; from += size) {
+    const { data, error } = await supabase
+      .from("material_prices")
+      .select("id, category, name, specification, unit, unit_price, source_file, created_at, updated_at")
+      .order("id")
+      .range(from, from + size - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as PriceRow[]));
+    if (!data || data.length < size) break;
+  }
+  return rows;
+}
+
+function SourceBadge({ item }: { item: QuoteItem }) {
+  const base = "inline-block px-1.5 py-0.5 rounded text-xs whitespace-nowrap";
+  switch (item.source) {
+    case "draft":
+      return <span className={`${base} bg-gray-100 text-gray-700`}>下書きの単価</span>;
+    case "manual":
+      return <span className={`${base} bg-blue-100 text-blue-700`}>手入力</span>;
+    case "auto":
+      return <span className={`${base} bg-purple-100 text-purple-700`}>自動計算</span>;
+    case "none":
+      return <span className={`${base} bg-red-100 text-red-700`}>単価表になし</span>;
+    case "table":
+      if (item.stale) {
+        return (
+          <span className={`${base} bg-orange-100 text-orange-800`} title={item.priceFile}>
+            要確認（{item.priceDate ? `${item.priceDate}の単価` : "日付不明"}）
+          </span>
+        );
+      }
+      if (item.priceSpec) {
+        return (
+          <span className={`${base} bg-amber-100 text-amber-800`} title={item.priceFile}>
+            規格違い（{displayText(item.priceSpec)}）
+          </span>
+        );
+      }
+      return (
+        <span className={`${base} bg-green-100 text-green-700`} title={item.priceFile}>
+          単価表 {item.priceDate ?? ""}
+        </span>
+      );
+  }
+}
+
+export default function QuoteBuilderPage() {
+  const [index, setIndex] = useState<PriceIndex | null>(null);
+  const [priceError, setPriceError] = useState<string | null>(null);
+
+  const [fileName, setFileName] = useState("");
+  const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [sheetName, setSheetName] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  const [groups, setGroups] = useState<QuoteGroup[]>([]);
+  const [cover, setCover] = useState<CoverInfo>({ client: "", title: "", companyLines: DEFAULT_COMPANY_LINES });
+  const [date, setDate] = useState(todayString());
+  const [coverNotes, setCoverNotes] = useState("");
+  const [extras, setExtras] = useState<CoverExtra[]>([{ id: newId("x"), ...EXTRA_PRESETS[0] }]);
+  const [settings, setSettings] = useState<QuoteSettings>(DEFAULT_SETTINGS);
+  const [showSettings, setShowSettings] = useState(false);
+  const [openSuggest, setOpenSuggest] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    setCover((c) => ({ ...c, companyLines: loadCompanyLines() }));
+    fetchAllPrices()
+      .then((rows) => setIndex(buildPriceIndex(rows)))
+      .catch((e) => setPriceError(`単価表の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
+  }, []);
+
+  const priceCount = index?.all.length ?? 0;
+
+  const loadDraft = useCallback(
+    (data: ArrayBuffer, sheet?: string) => {
+      const parsed = parseDraftWorkbook(data, sheet);
+      setSheetNames(parsed.sheetNames);
+      setSheetName(parsed.sheetName);
+      setWarnings(parsed.warnings);
+      const withAuto = parsed.groups.map(withAutoItems);
+      setGroups(
+        index
+          ? withAuto.map((g) => ({ ...g, items: applyPriceTable(g.items, index, settings.staleDays) }))
+          : withAuto,
+      );
+      setCover((c) => ({
+        client: parsed.cover.client ?? c.client,
+        title: parsed.cover.title ?? c.title,
+        companyLines: parsed.cover.companyLines ?? c.companyLines,
+      }));
+    },
+    [index, settings.staleDays],
+  );
+
+  // 単価表の読み込みが後になった時・要確認の日数を変えた時に当てはめ直す
+  useEffect(() => {
+    if (!index) return;
+    setGroups((gs) => gs.map((g) => ({ ...g, items: applyPriceTable(g.items, index, settings.staleDays) })));
+  }, [index, settings.staleDays]);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const data = await file.arrayBuffer();
+      setFileName(file.name);
+      setFileData(data);
+      loadDraft(data);
+    } catch (e) {
+      setWarnings([`ファイルを読み込めませんでした: ${e instanceof Error ? e.message : String(e)}`]);
+    }
+  };
+
+  const calcs = useMemo(() => groups.map((g) => calcGroup(g, settings)), [groups, settings]);
+  const coverCalc = useMemo(() => calcCover(calcs, extras, settings), [calcs, extras, settings]);
+
+  const allItems = groups.flatMap((g) => g.items).filter((i) => !i.auto);
+  const missingCount = allItems.filter((i) => i.unitPrice === null).length;
+  const staleCount = allItems.filter((i) => i.source === "table" && i.stale).length;
+  const specMismatchCount = allItems.filter((i) => i.source === "table" && !i.stale && i.priceSpec).length;
+
+  const updateItem = (gid: string, iid: string, patch: Partial<QuoteItem>) => {
+    setGroups((gs) => gs.map((g) => (g.id !== gid ? g : { ...g, items: g.items.map((i) => (i.id === iid ? { ...i, ...patch } : i)) })));
+  };
+
+  const setItemPrice = (gid: string, item: QuoteItem, value: string) => {
+    const v = value.replace(/[,，¥￥\s]/g, "");
+    if (v === "") {
+      // 空にしたら自動計算 / 単価表の単価に戻す
+      if (item.auto) updateItem(gid, item.id, { unitPrice: null, source: "auto" });
+      else if (index) updateItem(gid, item.id, applyPriceTable([{ ...item, source: "none" }], index, settings.staleDays)[0]);
+      else updateItem(gid, item.id, { unitPrice: null, source: "none" });
+      return;
+    }
+    const n = Number(v);
+    if (!isNaN(n)) updateItem(gid, item.id, { unitPrice: n, source: "manual", stale: false, priceSpec: "" });
+  };
+
+  const pickCandidate = (gid: string, item: QuoteItem, c: PriceCandidate) => {
+    updateItem(gid, item.id, {
+      unitPrice: c.unitPrice,
+      source: "manual",
+      priceDate: c.date,
+      priceFile: c.sourceFile,
+      priceSpec: "",
+      stale: false,
+    });
+    setOpenSuggest(null);
+  };
+
+  const updateExtra = (id: string, patch: Partial<CoverExtra>) => setExtras((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+
+  const setSetting = (key: keyof QuoteSettings, value: string, percent = false) => {
+    const v = value.trim();
+    if (key === "removalOverride" || key === "overheadOverride") {
+      setSettings((s) => ({ ...s, [key]: v === "" ? null : Number(v.replace(/,/g, "")) }));
+      return;
+    }
+    const n = Number(v);
+    if (v === "" || isNaN(n)) return;
+    setSettings((s) => ({ ...s, [key]: percent ? n / 100 : n }));
+  };
+
+  const handleDownload = async () => {
+    if (groups.length === 0) return;
+    if (missingCount > 0 && !confirm(`単価が入っていない品目が${missingCount}件あります（Excelでは黄色になります）。このまま作成しますか？`)) return;
+    setDownloading(true);
+    try {
+      const [y, m, d] = date.split("-").map(Number);
+      const when = new Date(y, (m || 1) - 1, d || 1);
+      const data = await buildQuoteWorkbook({
+        cover,
+        date: when,
+        coverNotes: coverNotes.split("\n"),
+        groups,
+        calcs,
+        extras,
+        coverCalc,
+        settings,
+      });
+      saveCompanyLines(cover.companyLines);
+      const blob = new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = quoteFileName(when, cover.title);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      alert(`Excelの作成に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const input = "border rounded px-2 py-1 text-sm";
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+        <h1 className="text-2xl font-bold">見積り作成</h1>
+        <Link href="/dashboard/material-prices" className="text-sm text-blue-600 hover:underline">
+          材料単価へ戻る
+        </Link>
+      </div>
+
+      <p className="text-sm text-gray-600 mb-4">
+        品目と数量だけを入れた内訳（「内訳 (悠介さん)」の形）のExcelを選ぶと、材料単価の表から単価を当てはめ、
+        撤去労務費・諸経費・法定福利費を計算して、今までと同じ書式の見積書Excelを作ります。
+      </p>
+
+      {/* 1. 下書きの読み込み */}
+      <section className="bg-white border rounded-lg p-4 mb-4">
+        <h2 className="font-bold mb-2">1. 下書きのExcelを選ぶ</h2>
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 cursor-pointer text-sm">
+            Excelファイルを選択
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                handleFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {fileName && <span className="text-sm">{fileName}</span>}
+          {sheetNames.length > 1 && (
+            <label className="text-sm flex items-center gap-1">
+              読み取るシート
+              <select
+                className={input}
+                value={sheetName}
+                onChange={(e) => fileData && loadDraft(fileData, e.target.value)}
+              >
+                {sheetNames.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          {priceError ? <span className="text-red-600">{priceError}</span> : index ? `単価表 ${priceCount.toLocaleString("ja-JP")}件を読み込み済み` : "単価表を読み込み中..."}
+        </p>
+        {warnings.map((w, i) => (
+          <p key={i} className="text-sm text-orange-700 mt-1">・{w}</p>
+        ))}
+      </section>
+
+      {groups.length > 0 && (
+        <>
+          {/* 2. 表紙 */}
+          <section className="bg-white border rounded-lg p-4 mb-4">
+            <h2 className="font-bold mb-2">2. 表紙の内容</h2>
+            <div className="grid md:grid-cols-2 gap-3">
+              <label className="text-sm">
+                宛先（〇〇 御中）
+                <input className={`${input} w-full`} value={cover.client} onChange={(e) => setCover({ ...cover, client: e.target.value })} />
+              </label>
+              <label className="text-sm">
+                件名
+                <input className={`${input} w-full`} value={cover.title} onChange={(e) => setCover({ ...cover, title: e.target.value })} />
+              </label>
+              <label className="text-sm">
+                見積日
+                <input type="date" className={`${input} w-full`} value={date} onChange={(e) => setDate(e.target.value)} />
+              </label>
+              <label className="text-sm md:row-span-2">
+                自社情報（右上の6行：住所・社名・電話・取引銀行・口座・登録番号）
+                <textarea
+                  rows={6}
+                  className={`${input} w-full font-mono`}
+                  value={cover.companyLines.join("\n")}
+                  onChange={(e) => setCover({ ...cover, companyLines: e.target.value.split("\n") })}
+                />
+              </label>
+              <label className="text-sm">
+                表紙の備考（1行に1つ。例：解体工事の見積りは別途）
+                <textarea rows={3} className={`${input} w-full`} value={coverNotes} onChange={(e) => setCoverNotes(e.target.value)} />
+              </label>
+            </div>
+          </section>
+
+          {/* 3. 内訳 */}
+          <section className="bg-white border rounded-lg p-4 mb-4">
+            <h2 className="font-bold mb-2">3. 内訳の単価を確認</h2>
+            <div className="flex flex-wrap gap-2 text-sm mb-3">
+              <span className={missingCount > 0 ? "text-red-700 font-bold" : "text-gray-600"}>単価なし {missingCount}件</span>
+              <span className={staleCount > 0 ? "text-orange-700 font-bold" : "text-gray-600"}>要確認（古い単価） {staleCount}件</span>
+              <span className={specMismatchCount > 0 ? "text-amber-700 font-bold" : "text-gray-600"}>規格違いで当てた単価 {specMismatchCount}件</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              単価は直接書き換えられます。空にすると単価表（雑材料消耗品・返納整備費は自動計算）に戻ります。
+              単価表にない品目は「候補」から似た品目の単価を選べます。
+            </p>
+
+            {groups.map((g, gi) => {
+              const calc = calcs[gi];
+              return (
+                <div key={g.id} className="mb-6">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="font-bold">{g.no}.</span>
+                    <input
+                      className={`${input} font-bold min-w-[16rem]`}
+                      value={g.name}
+                      placeholder="工事区分名"
+                      onChange={(e) => setGroups((gs) => gs.map((x) => (x.id === g.id ? { ...x, name: e.target.value } : x)))}
+                    />
+                    <span className="text-sm text-gray-600">計 {yen(calc.total)}</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 text-left">
+                          <th className="p-1 border">区分</th>
+                          <th className="p-1 border">名称</th>
+                          <th className="p-1 border">規格</th>
+                          <th className="p-1 border">単位</th>
+                          <th className="p-1 border text-right">数量</th>
+                          <th className="p-1 border text-right">単価</th>
+                          <th className="p-1 border text-right">金額</th>
+                          <th className="p-1 border">単価の出どころ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calc.items.map((item) => {
+                          const amount = item.qty !== null && item.unitPrice !== null ? item.qty * item.unitPrice : null;
+                          const original = g.items.find((i) => i.id === item.id)!;
+                          const suggestOpen = openSuggest === item.id;
+                          return (
+                            <tr key={item.id} className={item.unitPrice === null ? "bg-red-50" : item.auto ? "bg-purple-50/40" : ""}>
+                              <td className="p-1 border text-xs text-gray-500 whitespace-nowrap">{SECTION_LABELS[item.section]}</td>
+                              <td className="p-1 border">{item.name}</td>
+                              <td className="p-1 border text-xs">
+                                {item.spec}
+                                {item.extraSpecs.map((s, i) => <div key={i}>{s}</div>)}
+                              </td>
+                              <td className="p-1 border whitespace-nowrap">{item.unit}</td>
+                              <td className="p-1 border text-right">
+                                <input
+                                  className="w-20 border rounded px-1 text-right"
+                                  inputMode="decimal"
+                                  value={item.qty ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value.trim();
+                                    const n = Number(v);
+                                    updateItem(g.id, item.id, { qty: v === "" ? null : isNaN(n) ? item.qty : n });
+                                  }}
+                                />
+                              </td>
+                              <td className="p-1 border text-right">
+                                <input
+                                  className="w-24 border rounded px-1 text-right"
+                                  inputMode="numeric"
+                                  value={original.source === "auto" ? "" : num(item.unitPrice)}
+                                  placeholder={original.source === "auto" ? num(item.unitPrice) : ""}
+                                  onChange={(e) => setItemPrice(g.id, original, e.target.value)}
+                                />
+                              </td>
+                              <td className="p-1 border text-right whitespace-nowrap">{amount === null ? "" : num(amount)}</td>
+                              <td className="p-1 border">
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <SourceBadge item={item} />
+                                  {!item.auto && index && (
+                                    <button
+                                      type="button"
+                                      className="text-xs text-blue-600 hover:underline"
+                                      onClick={() => setOpenSuggest(suggestOpen ? null : item.id)}
+                                    >
+                                      候補
+                                    </button>
+                                  )}
+                                </div>
+                                {suggestOpen && index && (
+                                  <div className="mt-1 border rounded bg-white shadow-sm max-h-48 overflow-y-auto">
+                                    {suggestPrices(index, item).length === 0 && <p className="text-xs p-2 text-gray-500">似た品目が見つかりません</p>}
+                                    {suggestPrices(index, item).map((c, i) => (
+                                      <button
+                                        key={i}
+                                        type="button"
+                                        className="block w-full text-left text-xs px-2 py-1 hover:bg-blue-50"
+                                        onClick={() => pickCandidate(g.id, original, c)}
+                                      >
+                                        {c.name} {displayText(c.specification)} / {c.unit} <b>¥{c.unitPrice.toLocaleString("ja-JP")}</b>
+                                        <span className="text-gray-500"> {c.category} {c.date ?? "日付不明"}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-gray-50 text-xs">
+                          <td className="p-1 border" colSpan={8}>
+                            材料費 {yen(calc.materialSubtotal)} ／ 労務費 {yen(calc.laborSubtotal)}
+                            {calc.otherTotal > 0 && ` ／ その他 ${yen(calc.otherTotal)}`}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {g.notes.length > 0 && (
+                    <ul className="text-xs text-gray-600 mt-1">
+                      {g.notes.map((n, i) => <li key={i}>{n}</li>)}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+
+          {/* 4. 表紙の経費 */}
+          <section className="bg-white border rounded-lg p-4 mb-4">
+            <h2 className="font-bold mb-2">4. 表紙の経費と合計</h2>
+
+            <h3 className="text-sm font-bold mt-2 mb-1">運搬費などの追加行</h3>
+            <div className="overflow-x-auto">
+              <table className="text-sm border-collapse mb-2">
+                <thead>
+                  <tr className="bg-gray-100 text-left">
+                    <th className="p-1 border">名称</th>
+                    <th className="p-1 border">規格</th>
+                    <th className="p-1 border">単位</th>
+                    <th className="p-1 border">数量</th>
+                    <th className="p-1 border">単価</th>
+                    <th className="p-1 border">金額</th>
+                    <th className="p-1 border"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {extras.map((x) => (
+                    <tr key={x.id}>
+                      <td className="p-1 border"><input className="w-40 border rounded px-1" value={x.name} onChange={(e) => updateExtra(x.id, { name: e.target.value })} /></td>
+                      <td className="p-1 border"><input className="w-32 border rounded px-1" value={x.spec} onChange={(e) => updateExtra(x.id, { spec: e.target.value })} /></td>
+                      <td className="p-1 border"><input className="w-12 border rounded px-1" value={x.unit} onChange={(e) => updateExtra(x.id, { unit: e.target.value })} /></td>
+                      <td className="p-1 border"><input className="w-16 border rounded px-1 text-right" inputMode="decimal" value={x.qty} onChange={(e) => updateExtra(x.id, { qty: Number(e.target.value) || 0 })} /></td>
+                      <td className="p-1 border"><input className="w-24 border rounded px-1 text-right" inputMode="numeric" value={x.unitPrice} onChange={(e) => updateExtra(x.id, { unitPrice: Number(e.target.value.replace(/,/g, "")) || 0 })} /></td>
+                      <td className="p-1 border text-right whitespace-nowrap">{num(x.qty * x.unitPrice)}</td>
+                      <td className="p-1 border">
+                        <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setExtras((xs) => xs.filter((y) => y.id !== x.id))}>
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {EXTRA_PRESETS.map((p, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+                  onClick={() => setExtras((xs) => [...xs, { id: newId("x"), ...p }])}
+                >
+                  ＋ {p.name}{p.spec && `（${p.spec}）`} ¥{p.unitPrice.toLocaleString("ja-JP")}/{p.unit}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+                onClick={() => setExtras((xs) => [...xs, { id: newId("x"), name: "", spec: "", unit: "式", qty: 1, unitPrice: 0 }])}
+              >
+                ＋ 空の行
+              </button>
+            </div>
+
+            <table className="text-sm mb-3">
+              <tbody>
+                {groups.map((g, i) => (
+                  <tr key={g.id}>
+                    <td className="pr-6 py-0.5">{g.no}. {g.name}</td>
+                    <td className="text-right">{yen(coverCalc.groupTotals[i])}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="pr-6 py-0.5">撤去労務費 <span className="text-xs text-gray-500">（労務費 {yen(coverCalc.labor)} × {Math.round(settings.removalRate * 100)}%）</span></td>
+                  <td className="text-right">{yen(coverCalc.removal)}</td>
+                </tr>
+                {extras.map((x) => (
+                  <tr key={x.id}>
+                    <td className="pr-6 py-0.5">{x.name}</td>
+                    <td className="text-right">{yen(x.qty * x.unitPrice)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="pr-6 py-0.5">諸経費 <span className="text-xs text-gray-500">（約{Math.round(settings.overheadRate * 100)}%、税抜小計を{coverCalc.roundUnit.toLocaleString("ja-JP")}円単位にそろえる）</span></td>
+                  <td className="text-right">{yen(coverCalc.overhead)}</td>
+                </tr>
+                <tr>
+                  <td className="pr-6 py-0.5">法定福利費 <span className="text-xs text-gray-500">（労務費総額 {yen(coverCalc.welfareLabor)} × {(settings.welfareRate * 100).toFixed(2)}%）</span></td>
+                  <td className="text-right">{yen(coverCalc.welfare)}</td>
+                </tr>
+                <tr className="border-t">
+                  <td className="pr-6 py-0.5 font-bold">税抜小計</td>
+                  <td className="text-right font-bold">{yen(coverCalc.subtotal)}</td>
+                </tr>
+                <tr>
+                  <td className="pr-6 py-0.5">消費税</td>
+                  <td className="text-right">{yen(coverCalc.tax)}</td>
+                </tr>
+                <tr>
+                  <td className="pr-6 py-0.5 font-bold text-lg">合計金額</td>
+                  <td className="text-right font-bold text-lg">{yen(coverCalc.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <button type="button" className="text-sm text-blue-600 hover:underline" onClick={() => setShowSettings((v) => !v)}>
+              {showSettings ? "計算の設定を閉じる" : "計算の設定を変える"}
+            </button>
+            {showSettings && (
+              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 mt-3 text-sm">
+                <label>雑材料消耗品（材料費の%）
+                  <input className={`${input} w-full`} defaultValue={settings.miscRate * 100} onChange={(e) => setSetting("miscRate", e.target.value, true)} />
+                </label>
+                <label>工事区分の計をそろえる単位（円）
+                  <select className={`${input} w-full`} value={settings.groupRoundUnit} onChange={(e) => setSetting("groupRoundUnit", e.target.value)}>
+                    {[1, 100, 1000, 10000].map((u) => <option key={u} value={u}>{u.toLocaleString("ja-JP")}</option>)}
+                  </select>
+                </label>
+                <label>撤去労務費（労務費の%）
+                  <input className={`${input} w-full`} defaultValue={settings.removalRate * 100} onChange={(e) => setSetting("removalRate", e.target.value, true)} />
+                </label>
+                <label>撤去労務費を直接入力（空なら自動）
+                  <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.removalOverride ?? ""} onChange={(e) => setSetting("removalOverride", e.target.value)} />
+                </label>
+                <label>法定福利費（%）
+                  <input className={`${input} w-full`} defaultValue={settings.welfareRate * 100} onChange={(e) => setSetting("welfareRate", e.target.value, true)} />
+                </label>
+                <label>諸経費の目安（%）
+                  <input className={`${input} w-full`} defaultValue={settings.overheadRate * 100} onChange={(e) => setSetting("overheadRate", e.target.value, true)} />
+                </label>
+                <label>税抜小計をそろえる単位（円）
+                  <select className={`${input} w-full`} value={settings.subtotalRoundUnit} onChange={(e) => setSetting("subtotalRoundUnit", e.target.value)}>
+                    <option value={0}>自動（500万円未満は1万円、以上は10万円）</option>
+                    {[1000, 5000, 10000, 100000].map((u) => <option key={u} value={u}>{u.toLocaleString("ja-JP")}</option>)}
+                  </select>
+                </label>
+                <label>諸経費を直接入力（空なら自動）
+                  <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.overheadOverride ?? ""} onChange={(e) => setSetting("overheadOverride", e.target.value)} />
+                </label>
+                <label>この日数より古い単価は「要確認」
+                  <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.staleDays} onChange={(e) => setSetting("staleDays", e.target.value)} />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <div className="flex items-center gap-3 mb-10">
+            <button
+              type="button"
+              className="bg-green-600 text-white px-6 py-3 rounded hover:bg-green-700 disabled:opacity-50"
+              disabled={downloading}
+              onClick={handleDownload}
+            >
+              {downloading ? "作成中..." : "見積書Excelをダウンロード"}
+            </button>
+            <span className="text-sm text-gray-600">表紙「見積書」と「内訳」の2シートで作ります。</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

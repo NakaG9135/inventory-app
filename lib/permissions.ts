@@ -52,7 +52,7 @@ export const PAGES: PageDef[] = [
   { key: "report_logs", label: "日報ログ", href: "/dashboard/report-logs",
     levels: { view: "日報を見る", operate: "Excel出力", edit: "Excel出力・会社名の修正" } },
   { key: "material_prices", label: "材料単価", href: "/dashboard/material-prices",
-    levels: { view: "単価を見る", operate: "Excel取込・手動追加", edit: "削除・重複/類似の整理" } },
+    levels: { view: "単価を見る・見積り作成", operate: "Excel取込・手動追加", edit: "削除・重複/類似の整理" } },
   { key: "logs", label: "入出庫ログ", href: "/dashboard/logs",
     levels: { view: "ログを見る", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
   { key: "master", label: "商品マスタ編集", href: "/dashboard/master",

@@ -36,6 +36,7 @@ export default function Sidebar() {
     pageLink("report_logs"),
     { href: "/dashboard/profile", label: "登録情報変更", show: true },
     pageLink("material_prices"),
+    { href: "/dashboard/material-prices/quote", label: "見積り作成", show: can("material_prices", LEVEL_VIEW) },
     pageLink("logs"),
     pageLink("master"),
     pageLink("vehicles"),
