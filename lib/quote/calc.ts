@@ -11,6 +11,11 @@ export function isRental(item: QuoteItem): boolean {
   return item.unit.replace(/\s/g, "") === "台月";
 }
 
+// 追加したまま何も入れていない行（計算には影響しない。Excelには出さない）
+export function isBlankItem(item: QuoteItem): boolean {
+  return !item.auto && !item.name.trim() && !item.spec.trim() && item.qty === null;
+}
+
 export function lineAmount(item: QuoteItem): number {
   if (item.qty === null || item.unitPrice === null) return 0;
   return item.qty * item.unitPrice;

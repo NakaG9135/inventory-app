@@ -5,6 +5,7 @@ import {
   caseFromRow,
   caseInfoToRow,
   caseToRow,
+  type CaseGroup,
   type QuoteCase,
   type QuoteCaseInfo,
   type QuoteCaseRow,
@@ -26,6 +27,21 @@ export async function fetchCaseInfos(): Promise<QuoteCaseInfo[]> {
     if (!data || data.length < size) break;
   }
   return rows.map(caseFromRow);
+}
+
+// 全件の内訳だけ（内訳を直す時の名称・規格の候補と、材料→労務の組み合わせを覚えるのに使う）
+export async function fetchAllCaseGroups(): Promise<CaseGroup[]> {
+  const groups: CaseGroup[] = [];
+  const size = 200;
+  for (let from = 0; ; from += size) {
+    const { data, error } = await supabase.from("quote_cases").select("groups").order("id").range(from, from + size - 1);
+    if (error) throw new Error(error.message);
+    for (const row of (data ?? []) as { groups: CaseGroup[] | null }[]) {
+      if (Array.isArray(row.groups)) groups.push(...row.groups.filter((g) => Array.isArray(g?.items)));
+    }
+    if (!data || data.length < size) break;
+  }
+  return groups;
 }
 
 export async function fetchCase(id: string): Promise<QuoteCase> {

@@ -1,5 +1,5 @@
 import type ExcelJS from "exceljs";
-import type { CoverCalc, GroupCalc } from "./calc";
+import { isBlankItem, type CoverCalc, type GroupCalc } from "./calc";
 import type { CoverExtra, CoverInfo, QuoteGroup, QuoteItem, QuoteSettings } from "./types";
 
 // 今までの見積書と同じ書式（表紙「見積書」＋「内訳」）のExcelを作る
@@ -50,6 +50,7 @@ function detailLines(group: QuoteGroup, calc: GroupCalc): DetailLine[] {
   const lines: DetailLine[] = [{ kind: "header", no: group.no, name: group.name, spec: group.spec }];
   const push = (items: QuoteItem[]) => {
     for (const item of items) {
+      if (isBlankItem(item)) continue;
       lines.push({ kind: "item", item });
       for (const s of item.extraSpecs) lines.push({ kind: "spec", text: s });
     }

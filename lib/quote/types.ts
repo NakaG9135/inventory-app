@@ -36,6 +36,9 @@ export type QuoteItem = {
   auto?: AutoKind;
   // 単価表にない時に使う単価（過去の見積りから作った下書きの、その見積りでの単価）
   fallback?: { unitPrice: number; date: string | null; file: string };
+  // 材料に合わせて自動で足した（added）・直した（updated）労務の行。
+  // from＝元の材料の行id。sameQty＝材料の数量に合わせる。touched＝手で直したので以後は連動しない
+  link?: { from: string; kind: "added" | "updated"; sameQty: boolean; touched: boolean };
 };
 
 export type QuoteGroup = {

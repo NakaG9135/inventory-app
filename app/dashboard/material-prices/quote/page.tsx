@@ -3,18 +3,32 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
+import SuggestInput, { type SuggestOption } from "@/components/SuggestInput";
 import { supabase } from "@/lib/supabaseClient";
-import { calcCover, calcGroup, withAutoItems } from "@/lib/quote/calc";
+import { calcCover, calcGroup, isBlankItem, withAutoItems } from "@/lib/quote/calc";
 import {
   EMPTY_CONDITIONS,
   conditionParts,
   draftFromCase,
   rankCases,
   type CaseConditions,
+  type CaseGroup,
   type MatchLevel,
   type QuoteCaseInfo,
 } from "@/lib/quote/cases";
-import { fetchCase, fetchCaseInfos } from "@/lib/quote/caseStore";
+import { fetchAllCaseGroups, fetchCase, fetchCaseInfos } from "@/lib/quote/caseStore";
+import { buildCatalog, learnPairs, mainUnit, nameOptions, specOptions } from "@/lib/quote/catalog";
+import {
+  addItem,
+  blankGroup,
+  changeSection,
+  commitMaterial,
+  fillUnit,
+  removeItem,
+  renumber,
+  reprice,
+  syncLinkedQty,
+} from "@/lib/quote/edit";
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
 import { displayText } from "@/lib/quote/normalize";
 import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
@@ -34,6 +48,7 @@ import {
   type QuoteGroup,
   type QuoteItem,
   type QuoteSettings,
+  type Section,
 } from "@/lib/quote/types";
 
 const COMPANY_STORAGE_KEY = "quote.companyLines";
@@ -53,6 +68,9 @@ const EXTRA_PRESETS: Omit<CoverExtra, "id">[] = [
   { name: "普通運搬費", spec: "", unit: "回", qty: 2, unitPrice: 3000 },
   { name: "北電申請書類作成・提出", spec: "", unit: "件", qty: 1, unitPrice: 20000 },
 ];
+
+const SECTIONS: Section[] = ["material", "labor", "other"];
+const UNITS = ["ｍ", "本", "台", "面", "ヶ所", "ケ", "組", "式", "回", "件", "基", "台月", "ヶ月"];
 
 const yen = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`;
 const num = (n: number | null) => (n === null ? "" : n.toLocaleString("ja-JP"));
@@ -175,12 +193,30 @@ export default function QuoteBuilderPage() {
   const [openSuggest, setOpenSuggest] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
+  // 内訳を直す時の候補と、材料→労務の組み合わせ（見積り事例の内訳から覚える）
+  const [caseGroups, setCaseGroups] = useState<CaseGroup[]>([]);
+  const [caseGroupsError, setCaseGroupsError] = useState<string | null>(null);
+  const [focusItemId, setFocusItemId] = useState<string | null>(null);
+
   useEffect(() => {
     setCover((c) => ({ ...c, companyLines: loadCompanyLines() }));
     fetchAllPrices()
       .then((rows) => setIndex(buildPriceIndex(rows)))
       .catch((e) => setPriceError(`単価表の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
+    fetchAllCaseGroups()
+      .then(setCaseGroups)
+      .catch((e) =>
+        setCaseGroupsError(`見積り事例を読めなかったため、労務の自動追加は使えません（${e instanceof Error ? e.message : String(e)}）`),
+      );
   }, []);
+
+  const catalog = useMemo(() => buildCatalog(index, caseGroups), [index, caseGroups]);
+  const pairModel = useMemo(() => learnPairs(caseGroups), [caseGroups]);
+  const nameOpts = useMemo(() => {
+    const out = {} as Record<Section, SuggestOption[]>;
+    for (const s of SECTIONS) out[s] = nameOptions(catalog, s).map((n) => ({ value: displayText(n.name), hint: mainUnit(n) }));
+    return out;
+  }, [catalog]);
 
   const priceCount = index?.all.length ?? 0;
 
@@ -263,14 +299,67 @@ export default function QuoteBuilderPage() {
   const calcs = useMemo(() => groups.map((g) => calcGroup(g, settings)), [groups, settings]);
   const coverCalc = useMemo(() => calcCover(calcs, extras, settings), [calcs, extras, settings]);
 
-  const allItems = groups.flatMap((g) => g.items).filter((i) => !i.auto);
+  const allItems = groups.flatMap((g) => g.items).filter((i) => !i.auto && !isBlankItem(i));
   const missingCount = allItems.filter((i) => i.unitPrice === null).length;
   const staleCount = allItems.filter((i) => i.source === "table" && i.stale).length;
   const specMismatchCount = allItems.filter((i) => i.source === "table" && !i.stale && i.priceSpec).length;
   const caseCount = allItems.filter((i) => i.source === "case").length;
 
+  const updateGroup = (gid: string, fn: (g: QuoteGroup) => QuoteGroup) => {
+    setGroups((gs) => gs.map((g) => (g.id === gid ? fn(g) : g)));
+  };
+
+  // 画面で直した行。材料に合わせて自動で入れた労務を手で直したら、以後は材料と連動しない
   const updateItem = (gid: string, iid: string, patch: Partial<QuoteItem>) => {
-    setGroups((gs) => gs.map((g) => (g.id !== gid ? g : { ...g, items: g.items.map((i) => (i.id === iid ? { ...i, ...patch } : i)) })));
+    updateGroup(gid, (g) => ({
+      ...g,
+      items: g.items.map((i) => (i.id !== iid ? i : { ...i, ...patch, ...(i.link ? { link: { ...i.link, touched: true } } : {}) })),
+    }));
+  };
+
+  const pairCtx = { model: pairModel, index, staleDays: settings.staleDays };
+
+  // 名称・規格が決まった時（候補から選んだ・手入力して欄を離れた）：単位を補い、単価を当て直し、材料なら労務を足す
+  const commitText = (gid: string, iid: string, field: "name" | "spec", value: string, option: SuggestOption | null, prev: string) => {
+    updateGroup(gid, (g) => {
+      const item = g.items.find((i) => i.id === iid);
+      if (!item) return g;
+      let next: QuoteItem = { ...item, [field]: value };
+      if (option?.hint && (field === "spec" || !next.unit.trim())) next.unit = option.hint;
+      next = reprice(fillUnit(next, catalog), index, settings.staleDays, true);
+      let out: QuoteGroup = { ...g, items: g.items.map((i) => (i.id === iid ? next : i)) };
+      if (next.section === "material") {
+        const before = field === "name" ? { name: prev, spec: next.spec } : { name: next.name, spec: prev };
+        out = commitMaterial(out, iid, before, pairCtx);
+      }
+      return out;
+    });
+  };
+
+  const setItemQty = (gid: string, item: QuoteItem, value: string) => {
+    const v = value.trim();
+    const n = Number(v);
+    const qty = v === "" ? null : isNaN(n) ? item.qty : n;
+    updateItem(gid, item.id, { qty });
+    if (item.section === "material") updateGroup(gid, (g) => syncLinkedQty(g, item.id, qty));
+  };
+
+  const setItemSection = (gid: string, iid: string, section: Section) => {
+    updateGroup(gid, (g) => {
+      const moved = changeSection(g, iid, section, index, settings.staleDays);
+      return section === "material" ? commitMaterial(moved, iid, null, pairCtx) : moved;
+    });
+  };
+
+  const addRow = (gid: string, section: Section) => {
+    const id = newId("i");
+    updateGroup(gid, (g) => addItem(g, section, id).group);
+    setFocusItemId(id);
+  };
+
+  const removeGroup = (g: QuoteGroup) => {
+    if (g.items.some((i) => !isBlankItem(i)) && !confirm(`「${g.no}. ${g.name || "（名称なし）"}」を内訳から削除しますか？`)) return;
+    setGroups((gs) => renumber(gs.filter((x) => x.id !== g.id)));
   };
 
   const setItemPrice = (gid: string, item: QuoteItem, value: string) => {
@@ -535,17 +624,25 @@ export default function QuoteBuilderPage() {
 
           {/* 3. 内訳 */}
           <section className="bg-white border rounded-lg p-4 mb-4">
-            <h2 className="font-bold mb-2">3. 内訳の単価を確認</h2>
+            <h2 className="font-bold mb-2">3. 内訳を確認・編集</h2>
             <div className="flex flex-wrap gap-2 text-sm mb-3">
               <span className={missingCount > 0 ? "text-red-700 font-bold" : "text-gray-600"}>単価なし {missingCount}件</span>
               <span className={staleCount > 0 ? "text-orange-700 font-bold" : "text-gray-600"}>要確認（古い単価） {staleCount}件</span>
               <span className={specMismatchCount > 0 ? "text-amber-700 font-bold" : "text-gray-600"}>規格違いで当てた単価 {specMismatchCount}件</span>
               {caseCount > 0 && <span className="text-orange-700 font-bold">単価表になく元の見積りの単価 {caseCount}件</span>}
             </div>
-            <p className="text-xs text-gray-500 mb-3">
-              単価は直接書き換えられます。空にすると単価表（雑材料消耗品・返納整備費は自動計算）に戻ります。
-              単価表にない品目は「候補」から似た品目の単価を選べます。
+            <p className="text-xs text-gray-500 mb-1">
+              区分・名称・規格・単位・数量・単価を直接直せます。名称と規格は、入力すると過去に使ったものから似た候補が出ます（候補にないものもそのまま入力できます）。
+              単価を空にすると単価表（雑材料消耗品・返納整備費は自動計算）に戻ります。単価表にない品目は「候補」から似た品目の単価を選べます。
             </p>
+            <p className="text-xs text-gray-500 mb-3">
+              材料を入れると、過去の見積りで一緒に入っていた労務（例：電線→電源ケーブル配線）を「自動追加」で足します。いらなければ削除してください。
+              材料の数量を変えると自動追加した労務の数量も変わります（労務を手で直した後は変わりません）。
+            </p>
+            {caseGroupsError && <p className="text-xs text-orange-700 mb-3">{caseGroupsError}</p>}
+            <datalist id="quote-units">
+              {UNITS.map((u) => <option key={u} value={u} />)}
+            </datalist>
 
             {groups.map((g, gi) => {
               const calc = calcs[gi];
@@ -560,6 +657,9 @@ export default function QuoteBuilderPage() {
                       onChange={(e) => setGroups((gs) => gs.map((x) => (x.id === g.id ? { ...x, name: e.target.value } : x)))}
                     />
                     <span className="text-sm text-gray-600">計 {yen(calc.total)}</span>
+                    <button type="button" className="text-xs text-red-600 hover:underline ml-auto" onClick={() => removeGroup(g)}>
+                      この工事区分を削除
+                    </button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm border-collapse">
@@ -573,6 +673,7 @@ export default function QuoteBuilderPage() {
                           <th className="p-1 border text-right">単価</th>
                           <th className="p-1 border text-right">金額</th>
                           <th className="p-1 border">単価の出どころ</th>
+                          <th className="p-1 border"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -580,25 +681,90 @@ export default function QuoteBuilderPage() {
                           const amount = item.qty !== null && item.unitPrice !== null ? item.qty * item.unitPrice : null;
                           const original = g.items.find((i) => i.id === item.id)!;
                           const suggestOpen = openSuggest === item.id;
+                          const blank = isBlankItem(original);
                           return (
-                            <tr key={item.id} className={item.unitPrice === null ? "bg-red-50" : item.auto ? "bg-purple-50/40" : ""}>
-                              <td className="p-1 border text-xs text-gray-500 whitespace-nowrap">{SECTION_LABELS[item.section]}</td>
-                              <td className="p-1 border">{item.name}</td>
-                              <td className="p-1 border text-xs">
-                                {item.spec}
-                                {item.extraSpecs.map((s, i) => <div key={i}>{s}</div>)}
+                            <tr
+                              key={item.id}
+                              className={blank ? "bg-blue-50/40" : item.unitPrice === null ? "bg-red-50" : item.auto ? "bg-purple-50/40" : original.link ? "bg-sky-50/60" : ""}
+                            >
+                              <td className="p-1 border text-xs text-gray-500 whitespace-nowrap">
+                                {item.auto ? (
+                                  SECTION_LABELS[item.section]
+                                ) : (
+                                  <select
+                                    className="border rounded px-0.5 py-0.5 text-xs bg-white"
+                                    value={original.section}
+                                    onChange={(e) => setItemSection(g.id, item.id, e.target.value as Section)}
+                                  >
+                                    {SECTIONS.map((s) => (
+                                      <option key={s} value={s}>{SECTION_LABELS[s]}</option>
+                                    ))}
+                                  </select>
+                                )}
                               </td>
-                              <td className="p-1 border whitespace-nowrap">{item.unit}</td>
+                              <td className="p-1 border min-w-[11rem]">
+                                {item.auto ? (
+                                  item.name
+                                ) : (
+                                  <SuggestInput
+                                    className="w-full border rounded px-1"
+                                    value={original.name}
+                                    options={nameOpts[original.section]}
+                                    placeholder="名称"
+                                    autoFocus={focusItemId === item.id}
+                                    onChange={(v) => updateItem(g.id, item.id, { name: v })}
+                                    onCommit={(v, o, prev) => commitText(g.id, item.id, "name", v, o, prev)}
+                                  />
+                                )}
+                                {original.link && (
+                                  <span className="inline-block mt-0.5 px-1.5 rounded bg-sky-100 text-sky-800 text-xs whitespace-nowrap">
+                                    {original.link.kind === "added" ? "自動追加" : "材料に合わせて変更"}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-1 border min-w-[11rem] text-xs">
+                                {item.auto ? (
+                                  item.spec
+                                ) : (
+                                  <SuggestInput
+                                    className="w-full border rounded px-1"
+                                    value={original.spec}
+                                    options={() => specOptions(catalog, original.section, original.name).map((o) => ({ value: displayText(o.spec), hint: o.unit }))}
+                                    placeholder="規格"
+                                    onChange={(v) => updateItem(g.id, item.id, { spec: v })}
+                                    onCommit={(v, o, prev) => commitText(g.id, item.id, "spec", v, o, prev)}
+                                  />
+                                )}
+                                {original.extraSpecs.map((s, i) => (
+                                  <input
+                                    key={i}
+                                    className="w-full border rounded px-1 mt-0.5"
+                                    value={s}
+                                    onChange={(e) => updateItem(g.id, item.id, { extraSpecs: original.extraSpecs.map((x, j) => (j === i ? e.target.value : x)) })}
+                                    onBlur={() => {
+                                      if (!s.trim()) updateItem(g.id, item.id, { extraSpecs: original.extraSpecs.filter((_, j) => j !== i) });
+                                    }}
+                                  />
+                                ))}
+                              </td>
+                              <td className="p-1 border whitespace-nowrap">
+                                {item.auto ? (
+                                  item.unit
+                                ) : (
+                                  <input
+                                    className="w-14 border rounded px-1"
+                                    list="quote-units"
+                                    value={original.unit}
+                                    onChange={(e) => updateItem(g.id, item.id, { unit: e.target.value })}
+                                  />
+                                )}
+                              </td>
                               <td className="p-1 border text-right">
                                 <input
                                   className="w-20 border rounded px-1 text-right"
                                   inputMode="decimal"
                                   value={item.qty ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.target.value.trim();
-                                    const n = Number(v);
-                                    updateItem(g.id, item.id, { qty: v === "" ? null : isNaN(n) ? item.qty : n });
-                                  }}
+                                  onChange={(e) => setItemQty(g.id, original, e.target.value)}
                                 />
                               </td>
                               <td className="p-1 border text-right">
@@ -612,18 +778,20 @@ export default function QuoteBuilderPage() {
                               </td>
                               <td className="p-1 border text-right whitespace-nowrap">{amount === null ? "" : num(amount)}</td>
                               <td className="p-1 border">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <SourceBadge item={item} />
-                                  {!item.auto && index && (
-                                    <button
-                                      type="button"
-                                      className="text-xs text-blue-600 hover:underline"
-                                      onClick={() => setOpenSuggest(suggestOpen ? null : item.id)}
-                                    >
-                                      候補
-                                    </button>
-                                  )}
-                                </div>
+                                {!blank && (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <SourceBadge item={item} />
+                                    {!item.auto && index && (
+                                      <button
+                                        type="button"
+                                        className="text-xs text-blue-600 hover:underline"
+                                        onClick={() => setOpenSuggest(suggestOpen ? null : item.id)}
+                                      >
+                                        候補
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                                 {suggestOpen && index && (
                                   <div className="mt-1 border rounded bg-white shadow-sm max-h-48 overflow-y-auto">
                                     {suggestPrices(index, item).length === 0 && <p className="text-xs p-2 text-gray-500">似た品目が見つかりません</p>}
@@ -641,13 +809,37 @@ export default function QuoteBuilderPage() {
                                   </div>
                                 )}
                               </td>
+                              <td className="p-1 border text-center">
+                                <button
+                                  type="button"
+                                  className="text-xs text-red-600 hover:underline whitespace-nowrap"
+                                  title="この行を削除"
+                                  onClick={() => updateGroup(g.id, (x) => removeItem(x, item.id))}
+                                >
+                                  削除
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}
                         <tr className="bg-gray-50 text-xs">
-                          <td className="p-1 border" colSpan={8}>
-                            材料費 {yen(calc.materialSubtotal)} ／ 労務費 {yen(calc.laborSubtotal)}
-                            {calc.otherTotal > 0 && ` ／ その他 ${yen(calc.otherTotal)}`}
+                          <td className="p-1 border" colSpan={9}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {SECTIONS.map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  className="border rounded px-2 py-0.5 bg-white hover:bg-blue-50 text-blue-700"
+                                  onClick={() => addRow(g.id, s)}
+                                >
+                                  ＋ {SECTION_LABELS[s]}の行
+                                </button>
+                              ))}
+                              <span className="ml-auto">
+                                材料費 {yen(calc.materialSubtotal)} ／ 労務費 {yen(calc.laborSubtotal)}
+                                {calc.otherTotal > 0 && ` ／ その他 ${yen(calc.otherTotal)}`}
+                              </span>
+                            </div>
                           </td>
                         </tr>
                       </tbody>
@@ -661,6 +853,13 @@ export default function QuoteBuilderPage() {
                 </div>
               );
             })}
+            <button
+              type="button"
+              className="text-sm border rounded px-3 py-1 hover:bg-gray-50"
+              onClick={() => setGroups((gs) => renumber([...gs, blankGroup()]))}
+            >
+              ＋ 工事区分を追加
+            </button>
           </section>
 
           {/* 4. 表紙の経費 */}
