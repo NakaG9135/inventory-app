@@ -32,8 +32,11 @@ export default function InstallGate({ children }: { children: React.ReactNode })
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
-    // 開発中（localhost）はブラウザでもそのまま使えるようにする
-    if (isStandalone() || window.location.hostname === "localhost") {
+    // 開発中（localhost）とVercelのプレビュー（PRの動作確認用）はブラウザでもそのまま使えるようにする
+    const host = window.location.hostname;
+    const isPreview =
+      process.env.NEXT_PUBLIC_VERCEL_ENV === "preview" || (/-git-/.test(host) && host.endsWith(".vercel.app"));
+    if (isStandalone() || host === "localhost" || isPreview) {
       setMode("app");
       return;
     }
