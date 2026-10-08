@@ -140,7 +140,8 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
       row.height = 18;
       for (let c = 1; c <= 8; c++) {
         const cell = row.getCell(c);
-        cell.font = { name: MINCHO, size: 11, bold: c === 7 };
+        // 金額・備考と※の注意書きは太字
+        cell.font = { name: MINCHO, size: 11, bold: c === 7 || c === 8 || line.kind === "note" };
         cell.alignment = { vertical: "middle", horizontal: c === 1 || c === 4 ? "center" : c >= 5 && c <= 7 ? "right" : "left" };
         cell.numFmt = c === 7 ? AMOUNT : c >= 4 && c <= 6 ? NUM : "General";
         setBorder(cell, {
@@ -266,7 +267,6 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
   for (let r = 2; r <= 9; r++) {
     setBorder(ws.getCell(r, 1), { left: medium });
     setBorder(ws.getCell(r, 12), { right: medium });
-    setBorder(ws.getCell(r, 9), { left: medium });
   }
   for (let c = 1; c <= 5; c++) setBorder(ws.getCell(3, c), { bottom: medium });
   for (let c = 1; c <= 8; c++) setBorder(ws.getCell(5, c), { bottom: thin });
@@ -327,6 +327,7 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     // ※の注意書き（税抜小計の上）。過去の見積りと同じくA列に※、B列に文章
     ...input.coverNotes.map(stripNoteMark).filter((n) => n.trim()).map((n) => ({ value: n.trim() as ExcelJS.CellValue, mark: true })),
   ];
+  const markRows: number[] = [];
   for (const n of notes) {
     ws.getRow(r).height = 21;
     ws.mergeCells(`B${r}:I${r}`);
@@ -334,7 +335,10 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     const cell = ws.getCell(`B${r}`);
     cell.value = n.value;
     if (n.numFmt) cell.numFmt = n.numFmt;
-    if (n.mark) ws.getCell(`A${r}`).value = "※";
+    if (n.mark) {
+      ws.getCell(`A${r}`).value = "※";
+      markRows.push(r);
+    }
     r++;
   }
   ws.getRow(r).height = 21;
@@ -370,7 +374,8 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
         continue;
       }
       if (rr > 10) {
-        const isNote = rr >= first + body.length && rr < subRow;
+        // 法定福利費などの決まった注記だけ細字、※の注意書きは太字
+        const isNote = rr >= first + body.length && rr < subRow && !markRows.includes(rr);
         cell.font = { name: MINCHO, size: 11, bold: !isNote || c === 10 };
         const horizontal = c === 1 || c === 7 ? "center" : c === 8 || c === 9 || c === 10 ? "right" : "left";
         cell.alignment = { vertical: "middle", horizontal, shrinkToFit: c === 2 || c === 5 };
