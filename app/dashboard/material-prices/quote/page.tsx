@@ -2,8 +2,19 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { supabase } from "@/lib/supabaseClient";
 import { calcCover, calcGroup, withAutoItems } from "@/lib/quote/calc";
+import {
+  EMPTY_CONDITIONS,
+  conditionParts,
+  draftFromCase,
+  rankCases,
+  type CaseConditions,
+  type MatchLevel,
+  type QuoteCaseInfo,
+} from "@/lib/quote/cases";
+import { fetchCase, fetchCaseInfos } from "@/lib/quote/caseStore";
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
 import { displayText } from "@/lib/quote/normalize";
 import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
@@ -99,6 +110,12 @@ function SourceBadge({ item }: { item: QuoteItem }) {
       return <span className={`${base} bg-purple-100 text-purple-700`}>自動計算</span>;
     case "none":
       return <span className={`${base} bg-red-100 text-red-700`}>単価表になし</span>;
+    case "case":
+      return (
+        <span className={`${base} bg-orange-100 text-orange-800`} title={item.priceFile}>
+          元の見積りの単価（{item.priceDate ?? "日付不明"}）
+        </span>
+      );
     case "table":
       if (item.stale) {
         return (
@@ -122,9 +139,25 @@ function SourceBadge({ item }: { item: QuoteItem }) {
   }
 }
 
+const MATCH_STYLES: Record<MatchLevel, string> = {
+  same: "bg-green-100 text-green-800",
+  near: "bg-yellow-100 text-yellow-800",
+  diff: "bg-gray-100 text-gray-500 line-through",
+  unknown: "bg-gray-50 text-gray-400",
+};
+
 export default function QuoteBuilderPage() {
   const [index, setIndex] = useState<PriceIndex | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
+
+  // 作り方：下書きExcelから / 似た見積りから
+  const [mode, setMode] = useState<"draft" | "case">("draft");
+  const [query, setQuery] = useState<CaseConditions>(EMPTY_CONDITIONS);
+  const [caseInfos, setCaseInfos] = useState<QuoteCaseInfo[] | null>(null);
+  const [casesError, setCasesError] = useState<string | null>(null);
+  const [showMoreCases, setShowMoreCases] = useState(false);
+  const [loadingCaseId, setLoadingCaseId] = useState<string | null>(null);
+  const [baseCase, setBaseCase] = useState<QuoteCaseInfo | null>(null);
 
   const [fileName, setFileName] = useState("");
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
@@ -178,12 +211,49 @@ export default function QuoteBuilderPage() {
     setGroups((gs) => gs.map((g) => ({ ...g, items: applyPriceTable(g.items, index, settings.staleDays) })));
   }, [index, settings.staleDays]);
 
+  // 「似た見積りから」を開いた時に事例の一覧を読む
+  useEffect(() => {
+    if (mode !== "case" || caseInfos !== null) return;
+    fetchCaseInfos()
+      .then(setCaseInfos)
+      .catch((e) => setCasesError(`見積り事例の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
+  }, [mode, caseInfos]);
+
+  const ranked = useMemo(
+    () => (caseInfos ? rankCases(query, caseInfos, showMoreCases ? 10 : 3) : []),
+    [caseInfos, query, showMoreCases],
+  );
+  const hasQuery = conditionParts(query).length > 0;
+
+  const loadCase = async (info: QuoteCaseInfo) => {
+    if (!info.id) return;
+    if (groups.length > 0 && !confirm("いま作っている内訳を、この見積りの内容で置き換えますか？")) return;
+    setLoadingCaseId(info.id);
+    try {
+      const c = await fetchCase(info.id);
+      const draft = draftFromCase(c, index, { durationMonths: query.durationMonths, staleDays: settings.staleDays });
+      setGroups(draft.groups);
+      setExtras(draft.extras);
+      setWarnings(draft.messages);
+      setBaseCase(info);
+      setFileName("");
+      setFileData(null);
+      setSheetNames([]);
+      setTimeout(() => document.getElementById("quote-cover")?.scrollIntoView({ behavior: "smooth" }), 50);
+    } catch (e) {
+      alert(`見積りの読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoadingCaseId(null);
+    }
+  };
+
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
     try {
       const data = await file.arrayBuffer();
       setFileName(file.name);
       setFileData(data);
+      setBaseCase(null);
       loadDraft(data);
     } catch (e) {
       setWarnings([`ファイルを読み込めませんでした: ${e instanceof Error ? e.message : String(e)}`]);
@@ -197,6 +267,7 @@ export default function QuoteBuilderPage() {
   const missingCount = allItems.filter((i) => i.unitPrice === null).length;
   const staleCount = allItems.filter((i) => i.source === "table" && i.stale).length;
   const specMismatchCount = allItems.filter((i) => i.source === "table" && !i.stale && i.priceSpec).length;
+  const caseCount = allItems.filter((i) => i.source === "case").length;
 
   const updateItem = (gid: string, iid: string, patch: Partial<QuoteItem>) => {
     setGroups((gs) => gs.map((g) => (g.id !== gid ? g : { ...g, items: g.items.map((i) => (i.id === iid ? { ...i, ...patch } : i)) })));
@@ -285,44 +356,142 @@ export default function QuoteBuilderPage() {
         </Link>
       </div>
 
-      <p className="text-sm text-gray-600 mb-4">
-        品目と数量だけを入れた内訳（「内訳 (悠介さん)」の形）のExcelを選ぶと、材料単価の表から単価を当てはめ、
-        撤去労務費・諸経費・法定福利費を計算して、今までと同じ書式の見積書Excelを作ります。
-      </p>
+      <div className="flex gap-1 mb-0 border-b">
+        {(
+          [
+            ["draft", "下書きのExcelから作る"],
+            ["case", "似た見積りから作る"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={`px-4 py-2 text-sm rounded-t border border-b-0 ${mode === key ? "bg-white font-bold -mb-px" : "bg-gray-100 text-gray-600 hover:bg-gray-50"}`}
+            onClick={() => setMode(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {/* 1. 下書きの読み込み */}
-      <section className="bg-white border rounded-lg p-4 mb-4">
-        <h2 className="font-bold mb-2">1. 下書きのExcelを選ぶ</h2>
-        <div className="flex items-center gap-3 flex-wrap">
-          <label className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 cursor-pointer text-sm">
-            Excelファイルを選択
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                handleFile(e.target.files?.[0]);
-                e.target.value = "";
-              }}
-            />
-          </label>
-          {fileName && <span className="text-sm">{fileName}</span>}
-          {sheetNames.length > 1 && (
-            <label className="text-sm flex items-center gap-1">
-              読み取るシート
-              <select
-                className={input}
-                value={sheetName}
-                onChange={(e) => fileData && loadDraft(fileData, e.target.value)}
-              >
-                {sheetNames.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-        <p className="text-xs text-gray-500 mt-2">
+      {/* 1. 下書きの読み込み / 似た見積りを探す */}
+      <section className="bg-white border border-t-0 rounded-b-lg p-4 mb-4">
+        {mode === "draft" ? (
+          <>
+            <p className="text-sm text-gray-600 mb-3">
+              品目と数量だけを入れた内訳（「内訳 (悠介さん)」の形）のExcelを選ぶと、材料単価の表から単価を当てはめ、
+              撤去労務費・諸経費・法定福利費を計算して、今までと同じ書式の見積書Excelを作ります。
+            </p>
+            <h2 className="font-bold mb-2">1. 下書きのExcelを選ぶ</h2>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 cursor-pointer text-sm">
+                Excelファイルを選択
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleFile(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {fileName && <span className="text-sm">{fileName}</span>}
+              {sheetNames.length > 1 && (
+                <label className="text-sm flex items-center gap-1">
+                  読み取るシート
+                  <select
+                    className={input}
+                    value={sheetName}
+                    onChange={(e) => fileData && loadDraft(fileData, e.target.value)}
+                  >
+                    {sheetNames.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-gray-600 mb-3">
+              新しい現場の条件を入れると、登録済みの過去の見積りから条件の近いものを探します。選んだ見積りの品目と数量をコピーし、
+              単価は材料単価の表の最新に入れ直します。工期を入れると、レンタル（台月）や保守点検（ヶ月）の数量を工期に合わせて直します。
+            </p>
+            <h2 className="font-bold mb-2">1. 新しい現場の条件を入れる</h2>
+            <QuoteConditionsForm value={query} onChange={setQuery} />
+            <div className="flex items-center gap-3 mt-2 text-xs">
+              <button type="button" className="text-gray-600 hover:underline" onClick={() => setQuery(EMPTY_CONDITIONS)}>
+                条件をクリア
+              </button>
+              <Link href="/dashboard/material-prices/cases" className="text-blue-600 hover:underline">
+                過去の見積りを登録・条件を直す
+              </Link>
+            </div>
+
+            <h3 className="font-bold text-sm mt-4 mb-2">{hasQuery ? "条件の近い見積り" : "最近の見積り（条件を入れると近い順に並びます）"}</h3>
+            {casesError && <p className="text-sm text-red-600">{casesError}</p>}
+            {caseInfos === null && !casesError && <p className="text-sm text-gray-500">見積り事例を読み込み中...</p>}
+            {caseInfos !== null && caseInfos.length === 0 && (
+              <p className="text-sm text-gray-600">
+                まだ過去の見積りが登録されていません。
+                <Link href="/dashboard/material-prices/cases" className="text-blue-600 hover:underline">見積り事例</Link>
+                で最終版の見積りExcelを登録してください。
+              </p>
+            )}
+            <div className="space-y-2">
+              {ranked.map((r) => {
+                const c = r.quoteCase;
+                const isBase = baseCase?.id === c.id;
+                return (
+                  <div key={c.id} className={`border rounded-lg p-3 ${isBase ? "border-green-500 bg-green-50/50" : ""}`}>
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm">
+                          {hasQuery && <span className="text-green-700 mr-2">近さ {Math.round(r.score * 100)}%</span>}
+                          {c.title}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {c.quoteDate ?? "日付不明"} ／ {c.client || "宛先なし"} ／ 税抜 {yen(c.subtotal)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+                        disabled={!index || loadingCaseId !== null}
+                        onClick={() => loadCase(c)}
+                      >
+                        {loadingCaseId === c.id ? "読み込み中..." : isBase ? "もう一度読み込む" : "この見積りを元にする"}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {hasQuery
+                        ? r.reasons.map((x, i) => (
+                            <span key={i} className={`rounded px-1.5 py-0.5 text-xs whitespace-nowrap ${MATCH_STYLES[x.level]}`}>
+                              {x.label} {x.value}
+                            </span>
+                          ))
+                        : conditionParts(c).map((part, i) => (
+                            <span key={i} className="bg-gray-100 rounded px-1.5 py-0.5 text-xs whitespace-nowrap">{part}</span>
+                          ))}
+                    </div>
+                    {c.note && <p className="text-xs text-gray-600 mt-1">{c.note}</p>}
+                  </div>
+                );
+              })}
+            </div>
+            {caseInfos !== null && caseInfos.length > 3 && (
+              <button type="button" className="text-sm text-blue-600 hover:underline mt-2" onClick={() => setShowMoreCases((v) => !v)}>
+                {showMoreCases ? "上位3件だけ表示" : "もっと見る（10件まで）"}
+              </button>
+            )}
+            {baseCase && (
+              <p className="text-sm text-green-700 mt-3">「{baseCase.title}」（{baseCase.quoteDate ?? "日付不明"}）を元に下書きを作りました。下で内容を直してください。</p>
+            )}
+          </>
+        )}
+        <p className="text-xs text-gray-500 mt-3">
           {priceError ? <span className="text-red-600">{priceError}</span> : index ? `単価表 ${priceCount.toLocaleString("ja-JP")}件を読み込み済み` : "単価表を読み込み中..."}
         </p>
         {warnings.map((w, i) => (
@@ -333,7 +502,7 @@ export default function QuoteBuilderPage() {
       {groups.length > 0 && (
         <>
           {/* 2. 表紙 */}
-          <section className="bg-white border rounded-lg p-4 mb-4">
+          <section id="quote-cover" className="bg-white border rounded-lg p-4 mb-4">
             <h2 className="font-bold mb-2">2. 表紙の内容</h2>
             <div className="grid md:grid-cols-2 gap-3">
               <label className="text-sm">
@@ -371,6 +540,7 @@ export default function QuoteBuilderPage() {
               <span className={missingCount > 0 ? "text-red-700 font-bold" : "text-gray-600"}>単価なし {missingCount}件</span>
               <span className={staleCount > 0 ? "text-orange-700 font-bold" : "text-gray-600"}>要確認（古い単価） {staleCount}件</span>
               <span className={specMismatchCount > 0 ? "text-amber-700 font-bold" : "text-gray-600"}>規格違いで当てた単価 {specMismatchCount}件</span>
+              {caseCount > 0 && <span className="text-orange-700 font-bold">単価表になく元の見積りの単価 {caseCount}件</span>}
             </div>
             <p className="text-xs text-gray-500 mb-3">
               単価は直接書き換えられます。空にすると単価表（雑材料消耗品・返納整備費は自動計算）に戻ります。
