@@ -1,6 +1,6 @@
 import type ExcelJS from "exceljs";
-import { isBlankItem, type CoverCalc, type GroupCalc } from "./calc";
-import { stripNoteMark } from "./normalize";
+import { isBlankItem, isMaintenance, type CoverCalc, type GroupCalc } from "./calc";
+import { gaijiText, stripNoteMark } from "./normalize";
 import type { CoverExtra, CoverInfo, FixedRemarks, QuoteGroup, QuoteItem, QuoteSettings } from "./types";
 
 // 今までの見積書と同じ書式（表紙「見積書」＋「内訳」）のExcelを作る
@@ -53,101 +53,114 @@ function totalLabel(group: QuoteGroup, groupCount: number): string {
   return groupCount === 1 ? "【　　合　　計　　】" : `【　　${group.no}.　　計　　】`;
 }
 
+const BLANK: DetailLine = { kind: "blank" };
+
+// 工事区分ごとにページ（ROWS_PER_PAGE 行）単位で並べる。過去の見積りと同じく、
+// 1ページに収まらない時は材料費の小計をページの最後の行に置き、労務費は次のページから始める
 function detailLines(group: QuoteGroup, calc: GroupCalc, groupCount: number): DetailLine[] {
-  const lines: DetailLine[] = [{ kind: "header", no: group.no, name: group.name, spec: group.spec }];
-  const push = (items: QuoteItem[]) => {
-    for (const item of items) {
-      if (isBlankItem(item)) continue;
-      lines.push({ kind: "item", item });
-      for (const s of item.extraSpecs) lines.push({ kind: "spec", text: s });
-    }
-  };
+  const rows = (items: QuoteItem[]): DetailLine[] =>
+    items
+      .filter((item) => !isBlankItem(item))
+      .flatMap((item): DetailLine[] => [{ kind: "item", item }, ...item.extraSpecs.map((text): DetailLine => ({ kind: "spec", text }))]);
   const materials = calc.items.filter((i) => i.section === "material");
   const labor = calc.items.filter((i) => i.section === "labor");
   const other = calc.items.filter((i) => i.section === "other");
-  if (materials.length > 0) {
-    lines.push({ kind: "label", text: "材料費" });
-    push(materials);
-    lines.push({ kind: "subtotal", key: "material" });
-    if (labor.length > 0) lines.push({ kind: "blank" });
+  const materialPart: DetailLine[] =
+    materials.length > 0 ? [{ kind: "label", text: "材料費" }, ...rows(materials), { kind: "subtotal", key: "material" }] : [];
+  const laborPart: DetailLine[] = labor.length > 0 ? [{ kind: "label", text: "労務費" }, ...rows(labor), { kind: "subtotal", key: "labor" }] : [];
+  const otherPart = rows(other);
+  const joined = (parts: DetailLine[][]) => parts.filter((p) => p.length > 0).flatMap((p, i) => (i > 0 ? [BLANK, ...p] : p));
+
+  // ※の注意書きは「計」のすぐ上に下詰めで入れる
+  const tail: DetailLine[] = [
+    ...group.notes.map((n) => stripNoteMark(n).trim()).filter(Boolean).map((text): DetailLine => ({ kind: "note", text })),
+    { kind: "total", label: totalLabel(group, groupCount) },
+  ];
+  const header: DetailLine = { kind: "header", no: group.no, name: group.name, spec: group.spec };
+  let body = [header, ...joined([materialPart, laborPart, otherPart])];
+  if (body.length + tail.length > ROWS_PER_PAGE && materialPart.length > 0 && laborPart.length + otherPart.length > 0) {
+    const first = [header, ...materialPart];
+    const fill = (ROWS_PER_PAGE - (first.length % ROWS_PER_PAGE)) % ROWS_PER_PAGE;
+    first.splice(first.length - 1, 0, ...Array<DetailLine>(fill).fill(BLANK));
+    body = [...first, ...joined([laborPart, otherPart])];
   }
-  if (labor.length > 0) {
-    lines.push({ kind: "label", text: "労務費" });
-    push(labor);
-    lines.push({ kind: "subtotal", key: "labor" });
-  }
-  if (other.length > 0) {
-    if (materials.length + labor.length > 0) lines.push({ kind: "blank" });
-    push(other);
-  }
-  // ※の注意書き（「計」の上）
-  for (const n of group.notes) if (stripNoteMark(n).trim()) lines.push({ kind: "note", text: stripNoteMark(n).trim() });
   // 区分の計がページの最後の行に来るよう空行で埋める
-  const used = lines.length + 1;
+  const used = body.length + tail.length;
   const pages = Math.max(1, Math.ceil(used / ROWS_PER_PAGE));
-  for (let i = used; i < pages * ROWS_PER_PAGE; i++) lines.push({ kind: "blank" });
-  lines.push({ kind: "total", label: totalLabel(group, groupCount) });
-  return lines;
+  return [...body, ...Array<DetailLine>(pages * ROWS_PER_PAGE - used).fill(BLANK), ...tail];
 }
 
-// 戻り値：工事区分ごとの「計」のセル番地
-function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
+type DetailRefs = {
+  // 工事区分ごとの「計」のセル番地
+  totals: string[];
+  // 労務費の合計（各区分の労務費の小計＋保守点検費）のセル番地。表紙右の計算欄の「労務費」はここを見る
+  labor: string;
+};
+
+// 印刷設定・列幅・行の高さ・罫線は過去の見積り（A4横・120%・1ページ24行）に合わせる
+function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): DetailRefs {
   const ws = wb.addWorksheet("内訳", {
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      horizontalCentered: true,
+      scale: 120,
       margins: { left: 0.59, right: 0.59, top: 0.39, bottom: 0.39, header: 0.51, footer: 0.51 },
       printTitlesRow: "1:2",
     },
   });
-  const widths = [4.625, 26.625, 28.625, 6.625, 7.625, 9.625, 13.625, 16.625];
+  const widths = [4.625, 26.625, 28.625, 6.625, 7.625, 9.625, 13.625, 16.625, 9, 10.875];
   widths.forEach((w, i) => (ws.getColumn(i + 1).width = w));
 
   ws.mergeCells("A1:H1");
   const title = ws.getCell("A1");
   title.value = "内　　　訳　　　書";
-  title.font = { name: GOTHIC, size: 16, bold: true };
-  title.alignment = { horizontal: "center", vertical: "middle" };
+  title.font = { name: GOTHIC, size: 18, bold: true };
+  title.alignment = { horizontal: "center", vertical: "top" };
   ws.getRow(1).height = 27;
 
   const headers = ["番号", "名　　　　　　称", "規　　　　　　格", "単位", "数量", "単　　価", "金　　額", "備　　考"];
   const hr = ws.getRow(2);
-  hr.height = 24;
+  hr.height = 27;
   headers.forEach((h, i) => {
     const c = hr.getCell(i + 1);
     c.value = h;
     c.font = { name: MINCHO, size: 11 };
     c.alignment = { horizontal: "center", vertical: "middle" };
-    setBorder(c, { top: medium, bottom: thin, left: i === 0 ? medium : thin, right: i === 7 ? medium : thin });
+    setBorder(c, { top: medium, bottom: medium, left: i === 0 ? medium : thin, right: i === 7 ? medium : thin });
   });
 
   const totals: string[] = [];
+  const laborRefs: string[] = [];
   let r = 3;
   input.groups.forEach((group, gi) => {
     const calc = input.calcs[gi];
     const lines = detailLines(group, calc, input.groups.length);
-    const start = r;
     let sectionFirst = 0;
     const subtotalRows: number[] = [];
     const otherRows: number[] = [];
 
-    for (const line of lines) {
+    lines.forEach((line, li) => {
       const row = ws.getRow(r);
       row.height = 18;
+      // ※の注意書きは名称と規格の欄をつなげて書く
+      if (line.kind === "note") ws.mergeCells(`B${r}:C${r}`);
       for (let c = 1; c <= 8; c++) {
+        if (line.kind === "note" && c === 3) continue;
         const cell = row.getCell(c);
-        cell.font = { name: MINCHO, size: 11, bold: c === 7 };
-        cell.alignment = { vertical: "middle", horizontal: c === 1 || c === 4 ? "center" : c >= 5 && c <= 7 ? "right" : "left" };
+        // 金額・備考と※の注意書きは太字
+        cell.font = { name: MINCHO, size: 11, bold: c === 7 || c === 8 || line.kind === "note" };
+        cell.alignment = {
+          vertical: "middle",
+          horizontal: c === 1 || c === 4 ? "center" : c >= 5 && c <= 7 ? "right" : "left",
+          shrinkToFit: true,
+        };
         cell.numFmt = c === 7 ? AMOUNT : c >= 4 && c <= 6 ? NUM : "General";
+        // ページの最初と最後の行は太線（区分はページの頭から始まり、計はページの最後の行に来る）
         setBorder(cell, {
           left: c === 1 ? medium : thin,
           right: c === 8 ? medium : thin,
-          top: r === start ? medium : hair,
-          bottom: line.kind === "total" ? medium : hair,
+          top: li % ROWS_PER_PAGE === 0 ? medium : hair,
+          bottom: (li + 1) % ROWS_PER_PAGE === 0 ? medium : hair,
         });
       }
       switch (line.kind) {
@@ -172,6 +185,7 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
           row.getCell(7).value = { formula: `E${r}*F${r}`, result: (it.qty ?? 0) * (it.unitPrice ?? 0) };
           row.getCell(8).value = it.note || null;
           if (it.section === "other") otherRows.push(r);
+          if (isMaintenance(it, group)) laborRefs.push(`G${r}`);
           break;
         }
         case "spec":
@@ -182,6 +196,7 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
           const result = line.key === "material" ? calc.materialSubtotal : calc.laborSubtotal;
           row.getCell(7).value = { formula: `SUM(G${sectionFirst}:G${r - 1})`, result };
           subtotalRows.push(r);
+          if (line.key === "labor") laborRefs.push(`G${r}`);
           break;
         }
         case "note":
@@ -193,33 +208,40 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): string[] {
           const refs = [...subtotalRows, ...otherRows].map((x) => `G${x}`);
           row.getCell(7).value = { formula: refs.length > 0 ? refs.join("+") : "0", result: calc.total };
           totals.push(`G${r}`);
-          row.addPageBreak();
           break;
         }
         case "blank":
           break;
       }
       r++;
-    }
+    });
   });
   ws.pageSetup.printArea = `A1:H${r - 1}`;
-  return totals;
+
+  // 印刷範囲の外（J列）に労務費の合計。過去の見積りと同じ場所
+  const laborTotal = input.calcs.reduce((t, c) => t + c.labor + c.maintenanceLabor, 0);
+  ws.getCell("J3").value = "労務費";
+  ws.getCell("J4").value = { formula: laborRefs.length > 0 ? laborRefs.join("+") : "0", result: laborTotal };
+  for (const a of ["J3", "J4"]) ws.getCell(a).font = { name: MINCHO, size: 11 };
+  ws.getCell("J4").numFmt = AMOUNT;
+  return { totals, labor: "J4" };
 }
 
 // ---------------------------------------------------------------- 見積書（表紙）
-function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: string[]) {
+// 印刷設定・列幅・行の高さは過去の見積り（A4横・120%）に合わせる
+function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, detail: DetailRefs) {
+  const { totals } = detail;
   const ws = wb.addWorksheet("見積書", {
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 1,
-      horizontalCentered: true,
-      margins: { left: 0.59, right: 0.59, top: 0.59, bottom: 0.39, header: 0.51, footer: 0.51 },
+      scale: 120,
+      margins: { left: 0.59, right: 0.59, top: 0.59, bottom: 0.59, header: 0.51, footer: 0.51 },
+      printTitlesRow: "10:10",
     },
   });
-  const widths = [4.625, 4.625, 12.625, 11.625, 4.625, 24.625, 6.625, 7.625, 10.625, 12.625, 10.625, 2.625];
+  // A〜L列が見積書、M〜P列は印刷しない計算欄
+  const widths = [4.625, 4.625, 12.625, 10.625, 7.625, 20.625, 6.625, 8.625, 10.625, 13.625, 10.625, 2.625, 9, 9.75, 10.875, 13];
   widths.forEach((w, i) => (ws.getColumn(i + 1).width = w));
   const { cover, coverCalc: cc, settings } = input;
   const font = (size: number, extra: Partial<ExcelJS.Font> = {}): Partial<ExcelJS.Font> => ({ name: GOTHIC, size, ...extra });
@@ -233,12 +255,7 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     return cell;
   };
 
-  ws.getRow(1).height = 6;
-  ws.getRow(2).height = 42;
-  ws.getRow(3).height = 30;
-  ws.getRow(4).height = 15;
-  ws.getRow(5).height = 18;
-  for (let i = 6; i <= 9; i++) ws.getRow(i).height = 21;
+  [0.75, 42, 33, 18, 21, 21, 21, 21, 24].forEach((h, i) => (ws.getRow(i + 1).height = h));
 
   put("E2:I2", "御　　見　　積　　書", font(20, { underline: true }), { horizontal: "center" });
   const d = input.date;
@@ -247,10 +264,10 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
   put("A3:D3", cover.client, font(20, { bold: true }), { horizontal: "center", shrinkToFit: true });
   put("E3", "御中", font(18, { bold: true }), { horizontal: "left" });
   put("A4:B5", "件名：", font(16, { bold: true }), { horizontal: "center" });
-  put("C4:H5", cover.title, font(16, { bold: true }), { horizontal: "left", wrapText: true, shrinkToFit: false });
+  put("C4:H5", cover.title, font(16, { bold: true }), { horizontal: "left", shrinkToFit: true });
   put("A6:F6", "　下　記　の　通　り　御　見　積　申　し　上　げ　ま　す。", font(11, { underline: true }));
   put("A7:C7", "見積有効期限：発行から3ヵ月", font(11, { underline: true }), { horizontal: "left", shrinkToFit: true });
-  put("D7:D8", "合計金額", font(16, { bold: true }), { horizontal: "right" });
+  put("D7:D8", "合計金額", font(16, { bold: true }), { horizontal: "right", shrinkToFit: true });
 
   const lines = [...cover.companyLines, "", "", "", "", "", ""].slice(0, 6);
   const fit = { shrinkToFit: true };
@@ -266,7 +283,6 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
   for (let r = 2; r <= 9; r++) {
     setBorder(ws.getCell(r, 1), { left: medium });
     setBorder(ws.getCell(r, 12), { right: medium });
-    setBorder(ws.getCell(r, 9), { left: medium });
   }
   for (let c = 1; c <= 5; c++) setBorder(ws.getCell(3, c), { bottom: medium });
   for (let c = 1; c <= 8; c++) setBorder(ws.getCell(5, c), { bottom: thin });
@@ -274,7 +290,7 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
 
   // 明細
   const head = ws.getRow(10);
-  head.height = 27;
+  head.height = 30;
   const hdr: [string, string][] = [["A10", "番号"], ["B10:D10", "名　　　　　　　称"], ["E10:F10", "規　　　　　　格"], ["G10", "単位"], ["H10", "数　　量"], ["I10", "単　　価"], ["J10", "金　　額"], ["K10:L10", "摘要"]];
   for (const [range, text] of hdr) put(range, text, { name: MINCHO, size: 11 }, { horizontal: "center" });
 
@@ -284,10 +300,12 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
   input.groups.forEach((g, i) => {
     body.push({ name: g.name, spec: g.spec, unit: "式", qty: 1, amount: { formula: `内訳!${totals[i]}`, result: cc.groupTotals[i] }, note: g.remark });
   });
+  const removalIndex = body.length;
   body.push({ name: "撤去労務費", unit: "式", qty: 1, amount: cc.removal, note: fr.removal });
   for (const e of input.extras) {
     body.push({ name: e.name, spec: e.spec, unit: e.unit, qty: e.qty, price: e.unitPrice, amount: null, note: e.remark });
   }
+  const overheadIndex = body.length;
   body.push({ name: "諸経費", unit: "式", qty: 1, amount: cc.overhead, note: fr.overhead });
   const welfareIndex = body.length;
   body.push({ name: "法定福利費", unit: "式", qty: 1, amount: null, note: fr.welfare });
@@ -312,35 +330,36 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
     r++;
   });
 
-  // 注記：法定福利費の内訳（労務費総額 → 法定福利費は数式でつなぐ）
-  const laborNoteRow = r + 1;
+  // 法定福利費は右の計算欄（N6）から取る
   const welfareRow = first + welfareIndex;
-  ws.getCell(`J${welfareRow}`).value = {
-    formula: `ROUND(B${laborNoteRow}*${settings.welfareRate},0)`,
-    result: cc.welfare,
-  };
+  ws.getCell(`J${welfareRow}`).value = { formula: "N6", result: cc.welfare };
   const ratePct = `${Math.round(settings.welfareRate * 10000) / 100}％`;
-  const notes: { value: ExcelJS.CellValue; numFmt?: string; mark?: boolean }[] = [
-    { value: { formula: `J${welfareRow}`, result: cc.welfare }, numFmt: '"見積金額には社会保険事業主負担である法定福利費"#,##0"円を含む。"' },
-    { value: cc.welfareLabor, numFmt: `"（労務費総額"#,##0"円×社会保険加入率100％×社会保険料率${ratePct}）"` },
-    { value: "本見積書は『「建設技能者の更なる処遇改善」に関わる見積提出要領』を理解・了解の上作成した。" },
-    // ※の注意書き（税抜小計の上）。過去の見積りと同じくA列に※、B列に文章
-    ...input.coverNotes.map(stripNoteMark).filter((n) => n.trim()).map((n) => ({ value: n.trim() as ExcelJS.CellValue, mark: true })),
-  ];
-  for (const n of notes) {
+  type NoteLine = { value: ExcelJS.CellValue; numFmt?: string; mark?: boolean };
+  const noteRow = (n: NoteLine | null) => {
     ws.getRow(r).height = 21;
-    ws.mergeCells(`B${r}:I${r}`);
+    if (n) {
+      ws.mergeCells(`B${r}:I${r}`);
+      const cell = ws.getCell(`B${r}`);
+      cell.value = n.value;
+      if (n.numFmt) cell.numFmt = n.numFmt;
+      if (n.mark) {
+        ws.getCell(`A${r}`).value = "※";
+        markRows.push(r);
+      }
+    } else {
+      ws.mergeCells(`B${r}:D${r}`);
+    }
     ws.mergeCells(`K${r}:L${r}`);
-    const cell = ws.getCell(`B${r}`);
-    cell.value = n.value;
-    if (n.numFmt) cell.numFmt = n.numFmt;
-    if (n.mark) ws.getCell(`A${r}`).value = "※";
     r++;
-  }
-  ws.getRow(r).height = 21;
-  ws.mergeCells(`B${r}:D${r}`);
-  ws.mergeCells(`K${r}:L${r}`);
-  r++;
+  };
+  const markRows: number[] = [];
+  // 注記：法定福利費の内訳（労務費総額は右の計算欄の N5）
+  noteRow({ value: { formula: `J${welfareRow}`, result: cc.welfare }, numFmt: '"見積金額には社会保険事業主負担である法定福利費"#,##0"円を含む。"' });
+  noteRow({ value: { formula: "N5", result: cc.welfareLabor }, numFmt: `"（労務費総額"#,##0"円×社会保険加入率100％×社会保険料率${ratePct}）"` });
+  noteRow({ value: "本見積書は『「建設技能者の更なる処遇改善」に関わる見積提出要領』を理解・了解の上作成した。" });
+  noteRow(null);
+  // ※の注意書きは税抜小計のすぐ上に下詰めで入れる。過去の見積りと同じくA列に※、B列に文章
+  for (const n of input.coverNotes.map(stripNoteMark).filter((n) => n.trim())) noteRow({ value: n.trim(), mark: true });
 
   const subRow = r;
   const summary: [string, ExcelJS.CellValue][] = [
@@ -370,7 +389,8 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
         continue;
       }
       if (rr > 10) {
-        const isNote = rr >= first + body.length && rr < subRow;
+        // 法定福利費などの決まった注記だけ細字、※の注意書きは太字
+        const isNote = rr >= first + body.length && rr < subRow && !markRows.includes(rr);
         cell.font = { name: MINCHO, size: 11, bold: !isNote || c === 10 };
         const horizontal = c === 1 || c === 7 ? "center" : c === 8 || c === 9 || c === 10 ? "right" : "left";
         cell.alignment = { vertical: "middle", horizontal, shrinkToFit: c === 2 || c === 5 };
@@ -381,14 +401,57 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, totals: strin
         left: c === 1 ? medium : colStarts.includes(c) ? thin : undefined,
         right: c === 12 ? medium : undefined,
         top: rr === 10 ? medium : rr === 11 ? medium : hair,
-        bottom: rr === last ? medium : hair,
+        bottom: rr === 10 || rr === last ? medium : hair,
       });
     }
   }
 
   const total = put("E7:H8", { formula: `J${last}`, result: cc.total }, font(18, { bold: true }), { horizontal: "center" });
   total.numFmt = '"¥"#,##0;"¥"\\-#,##0';
+  // 結合し直すと先に引いた下線が消えるので、合計金額の下線をもう一度引く
+  setBorder(total, { bottom: medium });
   ws.pageSetup.printArea = `A1:L${last}`;
+
+  // 右の計算欄（印刷範囲の外）。過去の見積りと同じ並びで、撤去費・諸経費を決める目安と法定福利費を数式で出す
+  const removalRow = first + removalIndex;
+  const overheadRow = first + overheadIndex;
+  const dark: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFABF8F" } };
+  const light: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDE9D9" } };
+  const side = (range: string, value: ExcelJS.CellValue, fill: ExcelJS.Fill | null, opts: { size?: number; align?: Partial<ExcelJS.Alignment> } = {}) => {
+    if (range.includes(":")) ws.mergeCells(range);
+    const cell = ws.getCell(range.split(":")[0]);
+    cell.value = value;
+    cell.font = { name: MINCHO, size: opts.size ?? 11 };
+    if (opts.align) cell.alignment = opts.align;
+    if (fill) cell.fill = fill;
+    if (typeof value === "object" && value !== null) cell.numFmt = NUM;
+  };
+  const labor = cc.welfareLabor - cc.removal;
+  const top: Partial<ExcelJS.Alignment> = { vertical: "top" };
+  side("M2", "労務費", null);
+  side("N2", { formula: `内訳!${detail.labor}`, result: labor }, dark);
+  side("M3", `上記×${settings.removalRate}`, null, { size: 9, align: top });
+  side("N3", { formula: `N2*${settings.removalRate}`, result: labor * settings.removalRate }, light, { size: 9, align: top });
+  side("O3", "←調整して\n↓撤去費へ", light, { size: 10, align: { ...top, wrapText: true } });
+  side("M4", "撤去費", null);
+  side("N4", { formula: `J${removalRow}`, result: cc.removal }, dark);
+  side("O4", "撤去費", dark);
+  side("M5", "労務＋撤去", null, { align: { shrinkToFit: true } });
+  side("N5", { formula: "N2+N4", result: cc.welfareLabor }, light);
+  side("O5", "←労務費総額", light);
+  side("M6", `上記×${settings.welfareRate}`, null, { align: { shrinkToFit: true } });
+  side("N6", { formula: `ROUND(N5*${settings.welfareRate},0)`, result: cc.welfare }, dark);
+  side("O6", "←法定福利費", dark);
+  side("P6", null, dark);
+  side("M7:M8", "法定福利\n以外の計", null, { align: { horizontal: "center", wrapText: true } });
+  const nonWelfare = Array.from({ length: overheadRow - first }, (_, i) => `J${first + i}`).join("+");
+  side("N7:N8", { formula: nonWelfare, result: cc.nonWelfareTotal }, light, { align: { horizontal: "right" } });
+  side("O7:O8", null, light);
+  side("P7:P8", null, light);
+  side("M9", `上記×${settings.overheadRate}`, null);
+  side("N9", { formula: `N7*${settings.overheadRate}`, result: cc.nonWelfareTotal * settings.overheadRate }, dark);
+  side("O9", "←調整して諸経費へ", dark);
+  side("P9", null, dark);
 }
 
 export async function buildQuoteWorkbook(input: ExportInput): Promise<ArrayBuffer> {
@@ -398,14 +461,20 @@ export async function buildQuoteWorkbook(input: ExportInput): Promise<ArrayBuffe
   // 開いた時に数式を計算し直す（手直しした時も合計が合うように）
   wb.calcProperties.fullCalcOnLoad = true;
   // 表紙の数式は内訳の行番号を使うので、内訳を先に作ってから表紙を作り、並びは表紙を先頭にする
-  const totals = buildDetailSheet(wb, input);
-  buildCoverSheet(wb, input, totals);
+  buildCoverSheet(wb, input, buildDetailSheet(wb, input));
   const cover = wb.getWorksheet("見積書");
   const detail = wb.getWorksheet("内訳");
   if (cover && detail) {
     // exceljs はシートを orderNo の順に書き出す（型定義には無いプロパティ）
     (cover as unknown as { orderNo: number }).orderNo = 0;
     (detail as unknown as { orderNo: number }).orderNo = 1;
+  }
+  for (const ws of [cover, detail]) {
+    ws?.eachRow((row) =>
+      row.eachCell((cell) => {
+        if (typeof cell.value === "string" && cell.value.includes("㎟")) cell.value = gaijiText(cell.value);
+      }),
+    );
   }
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }

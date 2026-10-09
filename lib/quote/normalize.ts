@@ -4,7 +4,7 @@
 export function normKey(value: string): string {
   return String(value ?? "")
     .normalize("NFKC")
-    .replace(//g, "SQ") // 古いExcelで㎟が外字になっているもの
+    .replace(/\uE000/g, "SQ") // 古いExcelで㎟が外字になっているもの
     .toUpperCase()
     .replace(/MM2|SQ|□/g, "SQ")
     .replace(/ヶ/g, "ケ")
@@ -30,7 +30,12 @@ export function stripNoteMark(value: string): string {
   return String(value ?? "").replace(/^[\s　]*[※＊*][\s　]*/, "");
 }
 
-// 外字の㎟を画面・Excelで読める文字に戻す
+// 外字の㎟を画面で読める文字に戻す
 export function displayText(value: string): string {
-  return String(value ?? "").replace(//g, "㎟");
+  return String(value ?? "").replace(/\uE000/g, "㎟");
+}
+
+// Excelに書き出す時は、過去の見積りと同じ外字の㎟（社内のPCに登録してある文字）に戻す
+export function gaijiText(value: string): string {
+  return value.replace(/㎟/g, "\uE000");
 }
