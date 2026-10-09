@@ -1,6 +1,6 @@
 import type ExcelJS from "exceljs";
 import { isBlankItem, isMaintenance, type CoverCalc, type GroupCalc } from "./calc";
-import { stripNoteMark } from "./normalize";
+import { gaijiText, stripNoteMark } from "./normalize";
 import type { CoverExtra, CoverInfo, FixedRemarks, QuoteGroup, QuoteItem, QuoteSettings } from "./types";
 
 // 今までの見積書と同じ書式（表紙「見積書」＋「内訳」）のExcelを作る
@@ -468,6 +468,13 @@ export async function buildQuoteWorkbook(input: ExportInput): Promise<ArrayBuffe
     // exceljs はシートを orderNo の順に書き出す（型定義には無いプロパティ）
     (cover as unknown as { orderNo: number }).orderNo = 0;
     (detail as unknown as { orderNo: number }).orderNo = 1;
+  }
+  for (const ws of [cover, detail]) {
+    ws?.eachRow((row) =>
+      row.eachCell((cell) => {
+        if (typeof cell.value === "string" && cell.value.includes("㎟")) cell.value = gaijiText(cell.value);
+      }),
+    );
   }
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
