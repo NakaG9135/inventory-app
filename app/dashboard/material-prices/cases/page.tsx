@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { usePermissions } from "@/components/PermissionsProvider";
-import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
+import { LEVEL_EDIT, LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import { conditionParts, parseCaseWorkbook, type CaseConditions, type QuoteCase, type QuoteCaseInfo } from "@/lib/quote/cases";
 import { deleteCase, fetchCaseInfos, insertCase, updateCaseInfo } from "@/lib/quote/caseStore";
 
@@ -39,8 +39,8 @@ function CaseFields<T extends QuoteCaseInfo>({ value, onChange }: { value: T; on
 export default function QuoteCasesPage() {
   const { can } = usePermissions();
   // 操作: 登録・条件の修正 / 編集: 削除
-  const canOperate = can("material_prices", LEVEL_OPERATE);
-  const canEdit = can("material_prices", LEVEL_EDIT);
+  const canOperate = can("quote_cases", LEVEL_OPERATE);
+  const canEdit = can("quote_cases", LEVEL_EDIT);
 
   const [cases, setCases] = useState<QuoteCaseInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,9 +140,11 @@ export default function QuoteCasesPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h1 className="text-2xl font-bold">見積り事例</h1>
-        <Link href="/dashboard/material-prices/quote" className="bg-green-600 text-white text-sm px-4 py-2 rounded hover:bg-green-700">
-          似た見積りから作る
-        </Link>
+        {can("quotes", LEVEL_VIEW) && (
+          <Link href="/dashboard/material-prices/quote" className="bg-green-600 text-white text-sm px-4 py-2 rounded hover:bg-green-700">
+            似た見積りから作る
+          </Link>
+        )}
       </div>
 
       <p className="text-sm text-gray-600 mb-4">
