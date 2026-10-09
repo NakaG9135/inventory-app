@@ -21,6 +21,8 @@ export type PageKey =
   | "report"
   | "report_logs"
   | "material_prices"
+  | "quotes"
+  | "quote_cases"
   | "logs"
   | "master"
   | "vehicles"
@@ -52,7 +54,11 @@ export const PAGES: PageDef[] = [
   { key: "report_logs", label: "日報ログ", href: "/dashboard/report-logs",
     levels: { view: "日報を見る", operate: "Excel出力", edit: "Excel出力・会社名の修正" } },
   { key: "material_prices", label: "材料単価", href: "/dashboard/material-prices",
-    levels: { view: "単価を見る・見積り作成", operate: "Excel取込・手動追加・見積り事例の登録", edit: "削除・重複/類似の整理" } },
+    levels: { view: "単価を見る", operate: "Excel取込・手動追加", edit: "削除・重複/類似の整理" } },
+  { key: "quotes", label: "見積り作成", href: "/dashboard/material-prices/quote",
+    levels: { view: "見積りを作る・Excel出力（単価と見積り事例も使う）", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
+  { key: "quote_cases", label: "見積り事例", href: "/dashboard/material-prices/cases",
+    levels: { view: "事例を見る", operate: "事例の登録・条件の修正", edit: "事例の削除" } },
   { key: "logs", label: "入出庫ログ", href: "/dashboard/logs",
     levels: { view: "ログを見る", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
   { key: "master", label: "商品マスタ編集", href: "/dashboard/master",
@@ -79,10 +85,13 @@ export const SUPER_ADMIN_ONLY_PATHS = ["/dashboard/employees"];
 export const ALWAYS_ALLOWED_PATHS = ["/dashboard/profile"];
 
 
-// URL → 権限キー（一時保存した日報は「日報」の権限に従う）
+// URL → 権限キー（一時保存した日報は「日報」の権限に従う）。
+// 見積り作成は材料単価の下のURLなので、一番長く一致するページを選ぶ
 export function pageKeyForPath(pathname: string): PageKey | null {
   if (pathname.startsWith("/dashboard/report-drafts")) return "report";
   if (pathname.startsWith("/dashboard/report-logs")) return "report_logs";
-  const page = PAGES.find((p) => pathname === p.href || pathname.startsWith(p.href + "/"));
+  const page = PAGES.filter((p) => pathname === p.href || pathname.startsWith(p.href + "/")).sort(
+    (a, b) => b.href.length - a.href.length,
+  )[0];
   return page ? page.key : null;
 }

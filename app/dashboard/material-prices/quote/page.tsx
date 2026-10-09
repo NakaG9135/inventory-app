@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
+import { usePermissions } from "@/components/PermissionsProvider";
 import SuggestInput, { type SuggestOption } from "@/components/SuggestInput";
+import { LEVEL_VIEW } from "@/lib/permissions";
 import { supabase } from "@/lib/supabaseClient";
 import { calcCover, calcGroup, isBlankItem, withAutoItems } from "@/lib/quote/calc";
 import {
@@ -168,6 +170,9 @@ const MATCH_STYLES: Record<MatchLevel, string> = {
 };
 
 export default function QuoteBuilderPage() {
+  const { can } = usePermissions();
+  const canPrices = can("material_prices", LEVEL_VIEW);
+  const canCases = can("quote_cases", LEVEL_VIEW);
   const [index, setIndex] = useState<PriceIndex | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
 
@@ -463,9 +468,11 @@ export default function QuoteBuilderPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h1 className="text-2xl font-bold">見積り作成</h1>
-        <Link href="/dashboard/material-prices" className="text-sm text-blue-600 hover:underline">
-          材料単価へ戻る
-        </Link>
+        {canPrices && (
+          <Link href="/dashboard/material-prices" className="text-sm text-blue-600 hover:underline">
+            材料単価へ戻る
+          </Link>
+        )}
       </div>
 
       <div className="flex gap-1 mb-0 border-b">
@@ -537,9 +544,11 @@ export default function QuoteBuilderPage() {
               <button type="button" className="text-gray-600 hover:underline" onClick={() => setQuery(EMPTY_CONDITIONS)}>
                 条件をクリア
               </button>
-              <Link href="/dashboard/material-prices/cases" className="text-blue-600 hover:underline">
-                過去の見積りを登録・条件を直す
-              </Link>
+              {canCases && (
+                <Link href="/dashboard/material-prices/cases" className="text-blue-600 hover:underline">
+                  過去の見積りを登録・条件を直す
+                </Link>
+              )}
             </div>
 
             <h3 className="font-bold text-sm mt-4 mb-2">{hasQuery ? "条件の近い見積り" : "最近の見積り（条件を入れると近い順に並びます）"}</h3>
@@ -548,7 +557,11 @@ export default function QuoteBuilderPage() {
             {caseInfos !== null && caseInfos.length === 0 && (
               <p className="text-sm text-gray-600">
                 まだ過去の見積りが登録されていません。
-                <Link href="/dashboard/material-prices/cases" className="text-blue-600 hover:underline">見積り事例</Link>
+                {canCases ? (
+                  <Link href="/dashboard/material-prices/cases" className="text-blue-600 hover:underline">見積り事例</Link>
+                ) : (
+                  "見積り事例"
+                )}
                 で最終版の見積りExcelを登録してください。
               </p>
             )}

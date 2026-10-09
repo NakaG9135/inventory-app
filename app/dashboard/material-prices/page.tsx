@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
-import { LEVEL_EDIT, LEVEL_OPERATE } from "@/lib/permissions";
+import { LEVEL_EDIT, LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import { isFuzzyMatch } from "@/lib/fuzzyMatch";
 
 interface MaterialPrice {
@@ -386,9 +386,11 @@ export default function MaterialPricesPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h1 className="text-2xl font-bold">材料単価</h1>
-        <Link href="/dashboard/material-prices/quote" className="bg-green-600 text-white text-sm px-4 py-2 rounded hover:bg-green-700">
-          この単価で見積りを作る
-        </Link>
+        {can("quotes", LEVEL_VIEW) && (
+          <Link href="/dashboard/material-prices/quote" className="bg-green-600 text-white text-sm px-4 py-2 rounded hover:bg-green-700">
+            この単価で見積りを作る
+          </Link>
+        )}
       </div>
 
       {/* インポートセクション */}
