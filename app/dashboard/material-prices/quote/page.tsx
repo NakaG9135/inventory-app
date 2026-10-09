@@ -31,7 +31,7 @@ import {
   syncLinkedQty,
 } from "@/lib/quote/edit";
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
-import { displayText } from "@/lib/quote/normalize";
+import { displayText, normKey } from "@/lib/quote/normalize";
 import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
 import {
   applyPriceTable,
@@ -207,6 +207,10 @@ export default function QuoteBuilderPage() {
     fetchAllPrices()
       .then((rows) => setIndex(buildPriceIndex(rows)))
       .catch((e) => setPriceError(`単価表の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
+    // 事例の一覧は「似た見積りから」と宛先の候補に使う
+    fetchCaseInfos()
+      .then(setCaseInfos)
+      .catch((e) => setCasesError(`見積り事例の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
     fetchAllCaseGroups()
       .then(setCaseGroups)
       .catch((e) =>
@@ -222,6 +226,26 @@ export default function QuoteBuilderPage() {
     for (const s of SECTIONS) out[s] = nameOptions(catalog, s).map((n) => ({ value: displayText(n.name), hint: mainUnit(n) }));
     return out;
   }, [catalog]);
+
+  // 宛先の候補：登録済みの見積り事例の宛先（使った回数が多い順、同じなら新しい順）
+  const clientOpts = useMemo(() => {
+    const byKey = new Map<string, { value: string; count: number; latest: string }>();
+    for (const c of caseInfos ?? []) {
+      const value = c.client.trim();
+      if (!value) continue;
+      const key = normKey(value);
+      const date = c.quoteDate ?? "";
+      const hit = byKey.get(key);
+      if (!hit) byKey.set(key, { value, count: 1, latest: date });
+      else {
+        hit.count += 1;
+        if (date > hit.latest) Object.assign(hit, { value, latest: date });
+      }
+    }
+    return [...byKey.values()]
+      .sort((a, b) => b.count - a.count || b.latest.localeCompare(a.latest))
+      .map((c): SuggestOption => ({ value: c.value, hint: `${c.count}件` }));
+  }, [caseInfos]);
 
   const priceCount = index?.all.length ?? 0;
 
@@ -252,13 +276,6 @@ export default function QuoteBuilderPage() {
     setGroups((gs) => gs.map((g) => ({ ...g, items: applyPriceTable(g.items, index, settings.staleDays) })));
   }, [index, settings.staleDays]);
 
-  // 「似た見積りから」を開いた時に事例の一覧を読む
-  useEffect(() => {
-    if (mode !== "case" || caseInfos !== null) return;
-    fetchCaseInfos()
-      .then(setCaseInfos)
-      .catch((e) => setCasesError(`見積り事例の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
-  }, [mode, caseInfos]);
 
   const ranked = useMemo(
     () => (caseInfos ? rankCases(query, caseInfos, showMoreCases ? 10 : 3) : []),
@@ -602,7 +619,13 @@ export default function QuoteBuilderPage() {
             <div className="grid md:grid-cols-2 gap-3">
               <label className="text-sm">
                 宛先（〇〇 御中）
-                <input className={`${input} w-full`} value={cover.client} onChange={(e) => setCover({ ...cover, client: e.target.value })} />
+                <SuggestInput
+                  className={`${input} w-full`}
+                  value={cover.client}
+                  options={clientOpts}
+                  onChange={(v) => setCover((c) => ({ ...c, client: v }))}
+                  placeholder="過去の宛先から選ぶか、入力"
+                />
               </label>
               <label className="text-sm">
                 件名
