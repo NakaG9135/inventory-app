@@ -184,6 +184,7 @@ export default function QuoteBuilderPage() {
   const [showMoreCases, setShowMoreCases] = useState(false);
   const [loadingCaseId, setLoadingCaseId] = useState<string | null>(null);
   const [baseCase, setBaseCase] = useState<QuoteCaseInfo | null>(null);
+  const [startedNew, setStartedNew] = useState(false);
 
   const [fileName, setFileName] = useState("");
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
@@ -299,6 +300,7 @@ export default function QuoteBuilderPage() {
       setExtras(draft.extras);
       setWarnings(draft.messages);
       setBaseCase(info);
+      setStartedNew(false);
       setFileName("");
       setFileData(null);
       setSheetNames([]);
@@ -317,10 +319,31 @@ export default function QuoteBuilderPage() {
       setFileName(file.name);
       setFileData(data);
       setBaseCase(null);
+      setStartedNew(false);
       loadDraft(data);
     } catch (e) {
       setWarnings([`ファイルを読み込めませんでした: ${e instanceof Error ? e.message : String(e)}`]);
     }
+  };
+
+  // 下書きのExcelを使わずに、空の内訳から作る
+  const startNew = () => {
+    if (groups.length > 0 && !confirm("いま作っている見積りを消して、新規で作りますか？")) return;
+    const { group, id } = addItem(blankGroup(), "material");
+    setGroups(renumber([group]));
+    setCover((c) => ({ ...c, client: "", title: "" }));
+    setDate(todayString());
+    setCoverNotes([]);
+    setFixedRemarks(EMPTY_FIXED_REMARKS);
+    setExtras([{ id: newId("x"), ...EXTRA_PRESETS[0] }]);
+    setWarnings([]);
+    setFileName("");
+    setFileData(null);
+    setSheetNames([]);
+    setBaseCase(null);
+    setStartedNew(true);
+    setFocusItemId(id);
+    setTimeout(() => document.getElementById("quote-cover")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
 
   const calcs = useMemo(() => groups.map((g) => calcGroup(g, settings)), [groups, settings]);
@@ -478,7 +501,7 @@ export default function QuoteBuilderPage() {
       <div className="flex gap-1 mb-0 border-b">
         {(
           [
-            ["draft", "下書きのExcelから作る"],
+            ["draft", "下書きのExcel・新規で作る"],
             ["case", "似た見積りから作る"],
           ] as const
         ).map(([key, label]) => (
@@ -498,39 +521,55 @@ export default function QuoteBuilderPage() {
         {mode === "draft" ? (
           <>
             <p className="text-sm text-gray-600 mb-3">
-              品目と数量だけを入れた内訳（「内訳 (悠介さん)」の形）のExcelを選ぶと、材料単価の表から単価を当てはめ、
+              品目と数量だけを入れた内訳（「内訳 (悠介さん)」の形）のExcelを選ぶか、新規で空の内訳から作ると、材料単価の表から単価を当てはめ、
               撤去労務費・諸経費・法定福利費を計算して、今までと同じ書式の見積書Excelを作ります。
             </p>
-            <h2 className="font-bold mb-2">1. 下書きのExcelを選ぶ</h2>
-            <div className="flex items-center gap-3 flex-wrap">
-              <label className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 cursor-pointer text-sm">
-                Excelファイルを選択
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => {
-                    handleFile(e.target.files?.[0]);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-              {fileName && <span className="text-sm">{fileName}</span>}
-              {sheetNames.length > 1 && (
-                <label className="text-sm flex items-center gap-1">
-                  読み取るシート
-                  <select
-                    className={input}
-                    value={sheetName}
-                    onChange={(e) => fileData && loadDraft(fileData, e.target.value)}
-                  >
-                    {sheetNames.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <h2 className="font-bold mb-2">1. 下書きのExcelを選ぶ</h2>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 cursor-pointer text-sm">
+                    Excelファイルを選択
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleFile(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {fileName && <span className="text-sm">{fileName}</span>}
+                  {sheetNames.length > 1 && (
+                    <label className="text-sm flex items-center gap-1">
+                      読み取るシート
+                      <select
+                        className={input}
+                        value={sheetName}
+                        onChange={(e) => fileData && loadDraft(fileData, e.target.value)}
+                      >
+                        {sheetNames.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </div>
+              <div className="md:border-l md:pl-4">
+                <h2 className="font-bold mb-2">2. 新規で作る</h2>
+                <p className="text-sm text-gray-600 mb-2">
+                  Excelを使わずに、空の内訳から工事区分・品目・数量を入れて作ります。名称を入れると候補が出て、単価は材料単価の表から入ります。
+                </p>
+                <button type="button" className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm" onClick={startNew}>
+                  新規で作る
+                </button>
+              </div>
             </div>
+            {startedNew && (
+              <p className="text-sm text-green-700 mt-3">新規の見積りを用意しました。下で宛先・件名と内訳を入れてください。</p>
+            )}
           </>
         ) : (
           <>
