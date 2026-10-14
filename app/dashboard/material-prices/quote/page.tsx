@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { usePermissions } from "@/components/PermissionsProvider";
@@ -27,9 +27,11 @@ import {
   changeSection,
   commitMaterial,
   fillUnit,
+  moveItem,
   removeItem,
   renumber,
   reprice,
+  stepItem,
   syncLinkedQty,
 } from "@/lib/quote/edit";
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
@@ -217,6 +219,9 @@ export default function QuoteBuilderPage() {
   const [caseGroups, setCaseGroups] = useState<CaseGroup[]>([]);
   const [caseGroupsError, setCaseGroupsError] = useState<string | null>(null);
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
+  // 行をドラッグで動かしている時：動かしている行と、落とす位置（どの行の上か下か）
+  const [drag, setDrag] = useState<{ gid: string; id: string; section: Section } | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; below: boolean } | null>(null);
 
   useEffect(() => {
     setCover((c) => ({ ...c, companyLines: loadCompanyLines() }));
@@ -424,6 +429,15 @@ export default function QuoteBuilderPage() {
     const id = newId("i");
     updateGroup(gid, (g) => addItem(g, section, id).group);
     setFocusItemId(id);
+  };
+
+  const endDrag = () => {
+    setDrag(null);
+    setDropAt(null);
+  };
+  const dropBelow = (e: DragEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientY > r.top + r.height / 2;
   };
 
   const removeGroup = (g: QuoteGroup) => {
@@ -776,9 +790,12 @@ export default function QuoteBuilderPage() {
               区分・名称・規格・単位・数量・単価を直接直せます。名称と規格は、入力すると過去に使ったものから似た候補が出ます（候補にないものもそのまま入力できます）。
               単価を空にすると単価表（雑材料消耗品・返納整備費は自動計算）に戻ります。単価表にない品目は「候補」から似た品目の単価を選べます。
             </p>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-500 mb-1">
               材料を入れると、過去の見積りで一緒に入っていた労務（例：電線→電源ケーブル配線）を「自動追加」で足します。いらなければ削除してください。
               材料の数量を変えると自動追加した労務の数量も変わります（労務を手で直した後は変わりません）。
+            </p>
+            <p className="text-xs text-gray-500 mb-3">
+              行の順番は、左の ⠿ をドラッグするか ▲▼ で、同じ区分（材料費・労務費・その他）の中で入れ替えられます。Excelの内訳もこの順番で出ます。
             </p>
             {caseGroupsError && <p className="text-xs text-orange-700 mb-3">{caseGroupsError}</p>}
             <datalist id="quote-units">
@@ -806,6 +823,7 @@ export default function QuoteBuilderPage() {
                     <table className="w-full text-sm border-collapse">
                       <thead>
                         <tr className="bg-gray-100 text-left">
+                          <th className="p-1 border text-xs font-normal text-gray-500 whitespace-nowrap">順番</th>
                           <th className="p-1 border">区分</th>
                           <th className="p-1 border">名称</th>
                           <th className="p-1 border">規格</th>
@@ -824,11 +842,80 @@ export default function QuoteBuilderPage() {
                           const original = g.items.find((i) => i.id === item.id)!;
                           const suggestOpen = openSuggest === item.id;
                           const blank = isBlankItem(original);
+                          const peers = calc.items.filter((i) => i.section === item.section);
+                          const pos = peers.indexOf(item);
+                          const droppable = drag !== null && drag.gid === g.id && drag.section === item.section;
+                          const marker = dropAt?.id === item.id && droppable && drag.id !== item.id
+                            ? dropAt.below ? " [&>td]:border-b-[3px] [&>td]:border-b-blue-600" : " [&>td]:border-t-[3px] [&>td]:border-t-blue-600"
+                            : "";
                           return (
                             <tr
                               key={item.id}
-                              className={blank ? "bg-blue-50/40" : item.unitPrice === null ? "bg-red-50" : item.auto ? "bg-purple-50/40" : original.link ? "bg-sky-50/60" : ""}
+                              className={
+                                (blank ? "bg-blue-50/40" : item.unitPrice === null ? "bg-red-50" : item.auto ? "bg-purple-50/40" : original.link ? "bg-sky-50/60" : "") +
+                                (drag?.id === item.id ? " opacity-40" : "") +
+                                marker
+                              }
+                              onDragOver={(e) => {
+                                if (!droppable) {
+                                  if (drag && dropAt) setDropAt(null);
+                                  return;
+                                }
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "move";
+                                const below = dropBelow(e);
+                                if (dropAt?.id !== item.id || dropAt.below !== below) setDropAt({ id: item.id, below });
+                              }}
+                              onDrop={(e) => {
+                                if (!droppable) return;
+                                e.preventDefault();
+                                const below = dropBelow(e);
+                                updateGroup(g.id, (x) => moveItem(x, drag.id, item.id, below));
+                                endDrag();
+                              }}
                             >
+                              <td className="p-0.5 border">
+                                <div className="flex items-center">
+                                  <span
+                                    draggable
+                                    title="ドラッグして移動（同じ区分の中で）"
+                                    className="cursor-grab active:cursor-grabbing select-none px-1 text-gray-400 hover:text-gray-700"
+                                    onDragStart={(e) => {
+                                      e.dataTransfer.effectAllowed = "move";
+                                      e.dataTransfer.setData("text/plain", item.id);
+                                      const tr = e.currentTarget.closest("tr");
+                                      if (tr) {
+                                        const r = tr.getBoundingClientRect();
+                                        e.dataTransfer.setDragImage(tr, e.clientX - r.left, e.clientY - r.top);
+                                      }
+                                      setDrag({ gid: g.id, id: item.id, section: item.section });
+                                    }}
+                                    onDragEnd={endDrag}
+                                  >
+                                    ⠿
+                                  </span>
+                                  <div className="flex flex-col leading-none">
+                                    <button
+                                      type="button"
+                                      className="px-1 text-xs text-gray-600 hover:text-blue-700 disabled:text-gray-200"
+                                      title="1つ上へ"
+                                      disabled={pos <= 0}
+                                      onClick={() => updateGroup(g.id, (x) => stepItem(x, item.id, -1))}
+                                    >
+                                      ▲
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="px-1 text-xs text-gray-600 hover:text-blue-700 disabled:text-gray-200"
+                                      title="1つ下へ"
+                                      disabled={pos === peers.length - 1}
+                                      onClick={() => updateGroup(g.id, (x) => stepItem(x, item.id, 1))}
+                                    >
+                                      ▼
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
                               <td className="p-1 border text-xs text-gray-500 whitespace-nowrap">
                                 {item.auto ? (
                                   SECTION_LABELS[item.section]
@@ -974,7 +1061,7 @@ export default function QuoteBuilderPage() {
                           );
                         })}
                         <tr className="bg-gray-50 text-xs">
-                          <td className="p-1 border" colSpan={10}>
+                          <td className="p-1 border" colSpan={11}>
                             <div className="flex items-center gap-2 flex-wrap">
                               {SECTIONS.map((s) => (
                                 <button
