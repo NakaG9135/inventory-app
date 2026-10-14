@@ -26,6 +26,53 @@ function absoluteArea(c1: string, r1: number, c2: string, r2: number) {
   return `${c1}$${r1}:${c2}$${r2}`;
 }
 
+// ---------------------------------------------------------------- 文字の大きさ
+// 長い宛先・件名・名称などは、枠に1行で収まる一番大きい文字にする（過去の見積りでも宛先は長さに合わせて20→18と小さくしている）。
+// 「縮小して全体を表示」は開くソフトによっては効かないので、文字の大きさそのものを決めておく
+
+// 列の幅（ポイント）。既定のフォント（ＭＳ Ｐゴシック 11、数字の幅8px）での画面のピクセル幅から
+function columnsPt(ws: ExcelJS.Worksheet, c1: number, c2: number): number {
+  let px = 0;
+  for (let c = c1; c <= c2; c++) px += Math.trunc((ws.getColumn(c).width ?? 9) * 8 + 0.5);
+  return px * 0.75;
+}
+
+// 文字の幅の目安（文字の大きさを1とする）。全角（漢字・かな・×など）は1、半角は小さめ。
+// ＭＳ Ｐ明朝・Ｐゴシックのかなや英字は少し細いので、実際よりやや広く見て、はみ出さない側に寄せる
+function textEm(text: string): number {
+  let em = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code >= 0xff61 && code <= 0xff9f) em += 0.5; // 半角カナ
+    else if (code >= 0x80) em += 1;
+    else if (ch === " ") em += 0.3;
+    else if (ch === "M" || ch === "W") em += 0.9;
+    else if (/[A-Z]/.test(ch)) em += 0.7;
+    else if (/[0-9a-z]/.test(ch)) em += 0.55;
+    else em += 0.4;
+  }
+  return em;
+}
+
+// 幅 widthPt に1行で収まる一番大きい文字の大きさ（0.5刻み。max より大きくせず、min より小さくしない）
+function fitFontSize(text: string, widthPt: number, max: number, bold = false, min = 5): number {
+  const t = text.trimEnd();
+  const em = textEm(t);
+  if (em === 0) return max;
+  // セルの左右の余白と、太字で1文字ごとに太る分を引く
+  const room = widthPt - 4 - (bold ? [...t].length * 0.75 : 0);
+  return Math.max(min, Math.min(max, Math.floor((room / em) * 2) / 2));
+}
+
+// セル（c1〜c2列に結合）の文字を枠に収まる大きさにする。数式や空のセルはそのまま
+function fitCell(ws: ExcelJS.Worksheet, cell: ExcelJS.Cell, c1: number, c2: number) {
+  if (typeof cell.value !== "string" || !cell.value.trim()) return;
+  const font = cell.font ?? {};
+  const max = font.size ?? 11;
+  const size = fitFontSize(cell.value, columnsPt(ws, c1, c2), max, !!font.bold);
+  if (size < max) cell.font = { ...font, size };
+}
+
 function qtyFormat(qty: number | null) {
   return qty !== null && !Number.isInteger(qty) ? "#,##0.0#" : NUM;
 }
@@ -218,6 +265,9 @@ function buildDetailSheet(wb: ExcelJS.Workbook, input: ExportInput): DetailRefs 
         case "blank":
           break;
       }
+      // 長い名称・規格・備考は枠に収まる大きさに
+      if (line.kind === "note") fitCell(ws, row.getCell(2), 2, 3);
+      else for (const c of [2, 3, 8]) fitCell(ws, row.getCell(c), c, c);
       r++;
     });
   });
@@ -276,22 +326,26 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, detail: Detai
     vertical: "middle",
   });
   dateCell.numFmt = WAREKI_DATE;
-  put("A3:D3", cover.client, font(20, { bold: true }), { horizontal: "center" });
+  // 宛先・件名は長さに合わせて小さくする（宛先は20、件名は16まで）
+  fitCell(ws, put("A3:D3", cover.client, font(20, { bold: true }), { horizontal: "center", shrinkToFit: true }), 1, 4);
   put("E3", "御中", font(18, { bold: true }), { horizontal: "left" });
   put("A4:B5", "　件名 ：", font(16, { bold: true }), { horizontal: "center" });
-  put("C4:H5", cover.title, font(16, { bold: true }), { horizontal: "left", shrinkToFit: true });
+  fitCell(ws, put("C4:H5", cover.title, font(16, { bold: true }), { horizontal: "left", shrinkToFit: true }), 3, 8);
   put("A6:F6", "　下　記　の　通　り　御　見　積　申　し　上　げ　ま　す。", font(11, { underline: true }));
   put("A7:C7", "見積有効期限：発行から3ヵ月", font(11, { underline: true }), { horizontal: "left", shrinkToFit: true });
   put("D7:D8", "合計金額", font(16, { bold: true }), { horizontal: "right", shrinkToFit: true });
 
   // 自社情報（住所・社名・電話・取引銀行・口座・登録番号）。行ごとの縦位置も過去の見積りと同じ
   const lines = [...cover.companyLines, "", "", "", "", "", ""].slice(0, 6);
-  put("I3:L3", lines[0], font(11));
-  put("I4:L5", lines[1], font(16, { bold: true }), { horizontal: "left", vertical: "middle" });
-  put("I6:L6", lines[2], font(11), { vertical: "top" });
-  put("I7:L7", lines[3], font(11), { vertical: "top" });
-  put("I8:L8", lines[4], font(11), { vertical: "middle" });
-  put("I9:L9", lines[5], font(11), { horizontal: "left", vertical: "top" });
+  const company = [
+    put("I3:L3", lines[0], font(11)),
+    put("I4:L5", lines[1], font(16, { bold: true }), { horizontal: "left", vertical: "middle" }),
+    put("I6:L6", lines[2], font(11), { vertical: "top" }),
+    put("I7:L7", lines[3], font(11), { vertical: "top" }),
+    put("I8:L8", lines[4], font(11), { vertical: "middle" }),
+    put("I9:L9", lines[5], font(11), { horizontal: "left", vertical: "top" }),
+  ];
+  for (const cell of company) fitCell(ws, cell, 9, 12);
 
   // 見出し枠（1行目は高さ0.75の細線、2行目から太線の枠）
   for (let c = 1; c <= 12; c++) setBorder(ws.getCell(1, c), { top: thin });
@@ -436,6 +490,14 @@ function buildCoverSheet(wb: ExcelJS.Workbook, input: ExportInput, detail: Detai
       });
     }
   }
+
+  // 長い名称・規格・摘要と注記は枠に収まる大きさに（労務費総額の行はテキストボックスが重なるのでそのまま）
+  for (let rr = first; rr < first + body.length; rr++) {
+    fitCell(ws, ws.getCell(rr, 2), 2, 4);
+    fitCell(ws, ws.getCell(rr, 5), 5, 6);
+    fitCell(ws, ws.getCell(rr, 11), 11, 12);
+  }
+  for (const [rr, kind] of noteKinds) if (kind !== "blank" && rr !== welfareNoteRow) fitCell(ws, ws.getCell(rr, 2), 2, 9);
 
   // 合計金額は過去の見積りと同じく太字の斜体・下揃え
   const total = put("E7:H8", { formula: `J${last}`, result: cc.total }, font(18, { bold: true, italic: true }), { horizontal: "center" });
