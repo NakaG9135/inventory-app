@@ -56,7 +56,7 @@ export const PAGES: PageDef[] = [
   { key: "material_prices", label: "材料単価", href: "/dashboard/material-prices",
     levels: { view: "単価を見る", operate: "Excel取込・手動追加", edit: "削除・重複/類似の整理" } },
   { key: "quotes", label: "見積り作成", href: "/dashboard/material-prices/quote",
-    levels: { view: "見積りを作る・Excel出力（単価と見積り事例も使う）", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
+    levels: { view: "見積りを作る・Excel出力・自社情報の保存（単価と見積り事例も使う）", operate: "閲覧と同じ", edit: "閲覧と同じ" } },
   { key: "quote_cases", label: "見積り事例", href: "/dashboard/material-prices/cases",
     levels: { view: "事例を見る", operate: "事例の登録・条件の修正", edit: "事例の削除" } },
   { key: "logs", label: "入出庫ログ", href: "/dashboard/logs",

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { usePermissions } from "@/components/PermissionsProvider";
@@ -35,6 +35,7 @@ import {
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
 import { displayText, normKey } from "@/lib/quote/normalize";
 import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
+import { fetchCompanyLines, storeCompanyLines } from "@/lib/quote/settingsStore";
 import {
   applyPriceTable,
   buildPriceIndex,
@@ -56,6 +57,8 @@ import {
   type Section,
 } from "@/lib/quote/types";
 
+// 自社情報：DBの既定値（quote_settings）→ このブラウザに覚えたもの → 下の既定値 の順に使う。
+// 口座番号はリポジトリに置かないので、下の既定値では取引銀行・口座の行は空
 const COMPANY_STORAGE_KEY = "quote.companyLines";
 const DEFAULT_COMPANY_LINES = [
   "　　　札幌市白石区菊水5条2丁目4-5",
@@ -194,6 +197,13 @@ export default function QuoteBuilderPage() {
 
   const [groups, setGroups] = useState<QuoteGroup[]>([]);
   const [cover, setCover] = useState<CoverInfo>({ client: "", title: "", companyLines: DEFAULT_COMPANY_LINES });
+  // 自社情報の既定値（DBに保存したもの）。db＝DBに保存できる、local＝DBが使えないのでこのブラウザに覚える
+  const [savedCompany, setSavedCompany] = useState<string[] | null>(null);
+  const [companyStore, setCompanyStore] = useState<"loading" | "db" | "local">("loading");
+  const [companyMsg, setCompanyMsg] = useState<string | null>(null);
+  const [savingCompany, setSavingCompany] = useState(false);
+  // 下書きのExcelを読んだり手で直したりした後は、後から届いたDBの既定値で上書きしない
+  const companyEdited = useRef(false);
   const [date, setDate] = useState(todayString());
   const [coverNotes, setCoverNotes] = useState<string[]>([]);
   const [fixedRemarks, setFixedRemarks] = useState<FixedRemarks>(EMPTY_FIXED_REMARKS);
@@ -210,6 +220,14 @@ export default function QuoteBuilderPage() {
 
   useEffect(() => {
     setCover((c) => ({ ...c, companyLines: loadCompanyLines() }));
+    fetchCompanyLines()
+      .then((lines) => {
+        setCompanyStore("db");
+        if (!lines) return;
+        setSavedCompany(lines);
+        if (!companyEdited.current) setCover((c) => ({ ...c, companyLines: lines }));
+      })
+      .catch(() => setCompanyStore("local"));
     fetchAllPrices()
       .then((rows) => setIndex(buildPriceIndex(rows)))
       .catch((e) => setPriceError(`単価表の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
@@ -267,6 +285,7 @@ export default function QuoteBuilderPage() {
           ? withAuto.map((g) => ({ ...g, items: applyPriceTable(g.items, index, settings.staleDays) }))
           : withAuto,
       );
+      if (parsed.cover.companyLines) companyEdited.current = true;
       setCover((c) => ({
         client: parsed.cover.client ?? c.client,
         title: parsed.cover.title ?? c.title,
@@ -331,7 +350,7 @@ export default function QuoteBuilderPage() {
     if (groups.length > 0 && !confirm("いま作っている見積りを消して、新規で作りますか？")) return;
     const { group, id } = addItem(blankGroup(), "material");
     setGroups(renumber([group]));
-    setCover((c) => ({ ...c, client: "", title: "" }));
+    setCover((c) => ({ ...c, client: "", title: "", companyLines: savedCompany ?? loadCompanyLines() }));
     setDate(todayString());
     setCoverNotes([]);
     setFixedRemarks(EMPTY_FIXED_REMARKS);
@@ -449,6 +468,29 @@ export default function QuoteBuilderPage() {
     if (v === "" || isNaN(n)) return;
     setSettings((s) => ({ ...s, [key]: percent ? n / 100 : n }));
   };
+
+  // 自社情報を次からの既定値として保存する（DBが使えない時はこのブラウザに覚える）
+  const saveCompany = async () => {
+    const lines = cover.companyLines;
+    saveCompanyLines(lines);
+    if (companyStore !== "db") {
+      setCompanyMsg("このブラウザに保存しました。次からこのブラウザでは自動で入ります。");
+      return;
+    }
+    setSavingCompany(true);
+    setCompanyMsg(null);
+    try {
+      await storeCompanyLines(lines);
+      setSavedCompany(lines);
+      setCompanyMsg("保存しました。次から新規でも似た見積りからでも、この内容が入ります。");
+    } catch (e) {
+      setCompanyMsg(`保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+  const companySaved = savedCompany !== null && savedCompany.join("\n") === cover.companyLines.join("\n");
+  const bankMissing = !cover.companyLines[3]?.trim() || !cover.companyLines[4]?.trim();
 
   const handleDownload = async () => {
     if (groups.length === 0) return;
@@ -687,15 +729,37 @@ export default function QuoteBuilderPage() {
                 見積日
                 <input type="date" className={`${input} w-full`} value={date} onChange={(e) => setDate(e.target.value)} />
               </label>
-              <label className="text-sm md:row-span-2">
-                自社情報（右上の6行：住所・社名・電話・取引銀行・口座・登録番号）
-                <textarea
-                  rows={6}
-                  className={`${input} w-full font-mono`}
-                  value={cover.companyLines.join("\n")}
-                  onChange={(e) => setCover({ ...cover, companyLines: e.target.value.split("\n") })}
-                />
-              </label>
+              <div className="text-sm md:row-span-2">
+                <label className="block">
+                  自社情報（右上の6行：住所・社名・電話・取引銀行・口座・登録番号）
+                  <textarea
+                    rows={6}
+                    className={`${input} w-full font-mono`}
+                    value={cover.companyLines.join("\n")}
+                    onChange={(e) => {
+                      companyEdited.current = true;
+                      setCompanyMsg(null);
+                      setCover({ ...cover, companyLines: e.target.value.split("\n") });
+                    }}
+                  />
+                </label>
+                {bankMissing && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    取引銀行・口座の行（4・5行目）が空です。入力して「この自社情報を保存」を押すと、次から自動で入ります。
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <button
+                    type="button"
+                    className="border border-gray-300 rounded px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+                    onClick={saveCompany}
+                    disabled={savingCompany || companyStore === "loading" || companySaved}
+                  >
+                    {savingCompany ? "保存中…" : companySaved ? "保存済み" : "この自社情報を保存"}
+                  </button>
+                  {companyMsg && <span className="text-xs text-gray-600">{companyMsg}</span>}
+                </div>
+              </div>
             </div>
           </section>
 
