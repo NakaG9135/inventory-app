@@ -89,6 +89,25 @@ export function removeItem(group: QuoteGroup, id: string): QuoteGroup {
   };
 }
 
+// 行を、同じ区分（材料費・労務費・その他）の別の行の上か下に動かす。内訳Excelの行の順番もこの順になる
+export function moveItem(group: QuoteGroup, id: string, targetId: string, below: boolean): QuoteGroup {
+  const item = group.items.find((i) => i.id === id);
+  const target = group.items.find((i) => i.id === targetId);
+  if (!item || !target || id === targetId || item.section !== target.section) return group;
+  const items = group.items.filter((i) => i.id !== id);
+  items.splice(items.indexOf(target) + (below ? 1 : 0), 0, item);
+  return { ...group, items };
+}
+
+// ▲▼：同じ区分の中で1つ上・1つ下へ
+export function stepItem(group: QuoteGroup, id: string, dir: -1 | 1): QuoteGroup {
+  const item = group.items.find((i) => i.id === id);
+  if (!item) return group;
+  const same = group.items.filter((i) => i.section === item.section);
+  const neighbor = same[same.indexOf(item) + dir];
+  return neighbor ? moveItem(group, id, neighbor.id, dir === 1) : group;
+}
+
 export function changeSection(group: QuoteGroup, id: string, section: Section, index: PriceIndex | null, staleDays: number): QuoteGroup {
   const item = group.items.find((i) => i.id === id);
   if (!item || item.section === section) return group;
