@@ -167,10 +167,10 @@ export function suggestPrices(index: PriceIndex, item: Pick<QuoteItem, "name" | 
 }
 
 // 単価が入っていない品目（と前回単価表から入れた品目）に、単価表の単価を当てはめる。
-// 下書きに書いてあった単価・画面で手入力した単価・自動計算の行はそのまま
+// 下書きに書いてあった単価・画面で手入力した単価・保存した時の単価・自動計算の行はそのまま
 export function applyPriceTable(items: QuoteItem[], index: PriceIndex, staleDays: number, today?: Date): QuoteItem[] {
   return items.map((item) => {
-    if (item.auto || item.source === "draft" || item.source === "manual" || item.source === "auto") return item;
+    if (item.auto || item.source === "draft" || item.source === "manual" || item.source === "auto" || item.source === "saved") return item;
     const hit = lookupPrice(index, item, staleDays, today);
     if (!hit && item.fallback) {
       const f = item.fallback;

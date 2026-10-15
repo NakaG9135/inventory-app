@@ -12,8 +12,9 @@ export const SECTION_LABELS: Record<Section, string> = {
 // 自動計算する行（雑材料消耗品＝端数調整、返納整備費＝レンタル使用料×5%）
 export type AutoKind = "misc" | "return";
 
-// 単価の出どころ（case＝単価表になく、元にした過去の見積りの単価を使ったもの）
-export type PriceSource = "draft" | "table" | "manual" | "auto" | "none" | "case";
+// 単価の出どころ（case＝単価表になく、元にした過去の見積りの単価を使ったもの。
+// saved＝保存した見積りを開いた時の、保存した時の単価。単価表で入れ直さない）
+export type PriceSource = "draft" | "table" | "manual" | "auto" | "none" | "case" | "saved";
 
 export type QuoteItem = {
   id: string;

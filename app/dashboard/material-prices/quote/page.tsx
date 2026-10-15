@@ -6,7 +6,7 @@ import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { usePermissions } from "@/components/PermissionsProvider";
 import SuggestInput, { type SuggestOption } from "@/components/SuggestInput";
-import { LEVEL_VIEW } from "@/lib/permissions";
+import { LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import { supabase } from "@/lib/supabaseClient";
 import { calcCover, calcGroup, isBlankItem, withAutoItems } from "@/lib/quote/calc";
 import {
@@ -19,7 +19,7 @@ import {
   type MatchLevel,
   type QuoteCaseInfo,
 } from "@/lib/quote/cases";
-import { fetchAllCaseGroups, fetchCase, fetchCaseInfos } from "@/lib/quote/caseStore";
+import { fetchAllCaseGroups, fetchCase, fetchCaseEditor, fetchCaseInfos, saveQuoteCase } from "@/lib/quote/caseStore";
 import { buildCatalog, learnPairs, mainUnit, nameOptions, noteOptions, specOptions } from "@/lib/quote/catalog";
 import {
   addItem,
@@ -37,6 +37,7 @@ import {
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
 import { displayText, normKey } from "@/lib/quote/normalize";
 import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
+import { caseFromEditor, conditionsOf, infoOf, mergeConditions, openQuote, snapshotOf, type EditorState } from "@/lib/quote/saved";
 import { fetchCompanyLines, storeCompanyLines } from "@/lib/quote/settingsStore";
 import {
   applyPriceTable,
@@ -144,6 +145,12 @@ function SourceBadge({ item }: { item: QuoteItem }) {
           元の見積りの単価（{item.priceDate ?? "日付不明"}）
         </span>
       );
+    case "saved":
+      return (
+        <span className={`${base} bg-teal-100 text-teal-800`} title={item.priceFile}>
+          保存した単価 {item.priceDate ?? ""}
+        </span>
+      );
     case "table":
       if (item.stale) {
         return (
@@ -178,6 +185,7 @@ export default function QuoteBuilderPage() {
   const { can } = usePermissions();
   const canPrices = can("material_prices", LEVEL_VIEW);
   const canCases = can("quote_cases", LEVEL_VIEW);
+  const canSave = can("quote_cases", LEVEL_OPERATE);
   const [index, setIndex] = useState<PriceIndex | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
 
@@ -190,6 +198,17 @@ export default function QuoteBuilderPage() {
   const [loadingCaseId, setLoadingCaseId] = useState<string | null>(null);
   const [baseCase, setBaseCase] = useState<QuoteCaseInfo | null>(null);
   const [startedNew, setStartedNew] = useState(false);
+  // 「このまま開いて直す」で開いた見積り
+  const [opened, setOpened] = useState<QuoteCaseInfo | null>(null);
+
+  // 保存：上書き保存で置き換える見積り（開いた・元にした・保存した見積り）と、似た見積りを探す時の条件・メモ
+  const [linked, setLinked] = useState<QuoteCaseInfo | null>(null);
+  const [saveCond, setSaveCond] = useState<CaseConditions>(EMPTY_CONDITIONS);
+  const [saveNote, setSaveNote] = useState("");
+  const [showSaveCond, setShowSaveCond] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [fileName, setFileName] = useState("");
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
@@ -212,6 +231,8 @@ export default function QuoteBuilderPage() {
   const [extras, setExtras] = useState<CoverExtra[]>([{ id: newId("x"), ...EXTRA_PRESETS[0] }]);
   const [settings, setSettings] = useState<QuoteSettings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
+  // 保存した見積りを開いて設定が変わった時に、設定の入力欄を作り直す
+  const [settingsVersion, setSettingsVersion] = useState(0);
   const [openSuggest, setOpenSuggest] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
@@ -313,10 +334,19 @@ export default function QuoteBuilderPage() {
   );
   const hasQuery = conditionParts(query).length > 0;
 
+  // 保存先（上書き保存で置き換える見積り）と、保存する時の条件・メモを決め直す
+  const linkTo = (info: QuoteCaseInfo | null, cond: CaseConditions = EMPTY_CONDITIONS, note = "") => {
+    setLinked(info);
+    setSaveCond(cond);
+    setSaveNote(note);
+    setConfirmOverwrite(false);
+    setSaveMsg(null);
+  };
+
   const loadCase = async (info: QuoteCaseInfo) => {
     if (!info.id) return;
     if (groups.length > 0 && !confirm("いま作っている内訳を、この見積りの内容で置き換えますか？")) return;
-    setLoadingCaseId(info.id);
+    setLoadingCaseId(`base:${info.id}`);
     try {
       const c = await fetchCase(info.id);
       const draft = draftFromCase(c, index, { durationMonths: query.durationMonths, staleDays: settings.staleDays });
@@ -324,6 +354,8 @@ export default function QuoteBuilderPage() {
       setExtras(draft.extras);
       setWarnings(draft.messages);
       setBaseCase(info);
+      setOpened(null);
+      linkTo(info, mergeConditions(info, query));
       setStartedNew(false);
       setFileName("");
       setFileData(null);
@@ -343,6 +375,8 @@ export default function QuoteBuilderPage() {
       setFileName(file.name);
       setFileData(data);
       setBaseCase(null);
+      setOpened(null);
+      linkTo(null);
       setStartedNew(false);
       loadDraft(data);
     } catch (e) {
@@ -365,10 +399,57 @@ export default function QuoteBuilderPage() {
     setFileData(null);
     setSheetNames([]);
     setBaseCase(null);
+    setOpened(null);
+    linkTo(null);
     setStartedNew(true);
     setFocusItemId(id);
     setTimeout(() => document.getElementById("quote-cover")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
+
+  // 保存した見積りを、保存した時の内容・単価のまま開く（Excelから登録した見積りは、その見積りの単価のまま）
+  const openCase = async (id: string) => {
+    if (groups.length > 0 && !confirm("いま作っている見積りを閉じて、この見積りを開きますか？（保存していない変更は消えます）")) return;
+    setLoadingCaseId(`open:${id}`);
+    try {
+      const [c, editor] = await Promise.all([fetchCase(id), fetchCaseEditor(id)]);
+      const q = openQuote(c, editor);
+      const staleDays = q.settings?.staleDays ?? settings.staleDays;
+      setGroups(index ? q.groups.map((g) => ({ ...g, items: applyPriceTable(g.items, index, staleDays) })) : q.groups);
+      setExtras(q.extras);
+      setCoverNotes(q.coverNotes);
+      setFixedRemarks(q.fixedRemarks);
+      if (q.settings) {
+        setSettings(q.settings);
+        setSettingsVersion((v) => v + 1);
+      }
+      setCover((cv) => ({ ...cv, client: c.client, title: c.title }));
+      setDate(c.quoteDate ?? todayString());
+      const info = infoOf(c);
+      setOpened(info);
+      linkTo(info, conditionsOf(c), c.note);
+      setBaseCase(null);
+      setStartedNew(false);
+      setWarnings([]);
+      setFileName("");
+      setFileData(null);
+      setSheetNames([]);
+      setTimeout(() => document.getElementById("quote-cover")?.scrollIntoView({ behavior: "smooth" }), 50);
+    } catch (e) {
+      alert(`見積りを開けませんでした: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoadingCaseId(null);
+    }
+  };
+
+  // 見積り事例の画面の「見積り作成で開く」（?open=id）
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("open");
+    if (!id) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    setMode("case");
+    openCase(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const calcs = useMemo(() => groups.map((g) => calcGroup(g, settings)), [groups, settings]);
   const coverCalc = useMemo(() => calcCover(calcs, extras, settings), [calcs, extras, settings]);
@@ -378,6 +459,7 @@ export default function QuoteBuilderPage() {
   const staleCount = allItems.filter((i) => i.source === "table" && i.stale).length;
   const specMismatchCount = allItems.filter((i) => i.source === "table" && !i.stale && i.priceSpec).length;
   const caseCount = allItems.filter((i) => i.source === "case").length;
+  const savedCount = allItems.filter((i) => i.source === "saved").length;
 
   const updateGroup = (gid: string, fn: (g: QuoteGroup) => QuoteGroup) => {
     setGroups((gs) => gs.map((g) => (g.id === gid ? fn(g) : g)));
@@ -541,6 +623,66 @@ export default function QuoteBuilderPage() {
     }
   };
 
+  // 見積り事例に保存する。overwrite＝開いている見積り（linked）を上書き。上書きは画面の確認とこの確認の2回
+  const saveQuote = async (overwrite: boolean) => {
+    if (!cover.title.trim()) {
+      setSaveMsg({ ok: false, text: "件名を入れてから保存してください（「2. 表紙の内容」の件名）。" });
+      return;
+    }
+    if (overwrite) {
+      if (!linked?.id) return;
+      if (!confirm(`本当に「${linked.title}」を上書きしますか？\n上書きすると、元の内容には戻せません。`)) return;
+    }
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const state: EditorState = {
+        client: cover.client,
+        title: cover.title,
+        date,
+        groups,
+        calcs,
+        extras,
+        coverNotes,
+        fixedRemarks,
+        settings,
+        subtotal: coverCalc.subtotal,
+      };
+      const target = overwrite ? linked : null;
+      const c = caseFromEditor(state, saveCond, saveNote, target?.sourceFile ?? "");
+      const id = await saveQuoteCase(c, snapshotOf(state), target?.id ?? null);
+      setLinked({ ...infoOf(c), id });
+      setSaveCond(conditionsOf(c));
+      setConfirmOverwrite(false);
+      setSaveMsg({
+        ok: true,
+        text: overwrite
+          ? `「${c.title}」を上書き保存しました。`
+          : `「${c.title}」を新しく保存しました。このあと直した時は「上書き保存」でこの見積りを更新できます。`,
+      });
+      fetchCaseInfos().then(setCaseInfos).catch(() => {});
+    } catch (e) {
+      setSaveMsg({ ok: false, text: `保存に失敗しました: ${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 保存した時の単価を、単価表の最新に入れ直す（単価表にない品目は今の単価のまま）
+  const refreshSavedPrices = () => {
+    if (!index || !confirm("「保存した単価」の品目を、材料単価の表の最新の単価に入れ直しますか？\n（手入力した単価と、単価表にない品目はそのままです）")) return;
+    setGroups((gs) =>
+      gs.map((g) => ({
+        ...g,
+        items: g.items.map((i) => {
+          if (i.source !== "saved") return i;
+          const next = applyPriceTable([{ ...i, source: "none" }], index, settings.staleDays)[0];
+          return next.source === "none" ? i : next;
+        }),
+      })),
+    );
+  };
+
   const input = "border rounded px-2 py-1 text-sm";
 
   return (
@@ -664,26 +806,42 @@ export default function QuoteBuilderPage() {
               {ranked.map((r) => {
                 const c = r.quoteCase;
                 const isBase = baseCase?.id === c.id;
+                const isLinked = linked?.id === c.id;
                 return (
-                  <div key={c.id} className={`border rounded-lg p-3 ${isBase ? "border-green-500 bg-green-50/50" : ""}`}>
+                  <div key={c.id} className={`border rounded-lg p-3 ${isBase || isLinked ? "border-green-500 bg-green-50/50" : ""}`}>
                     <div className="flex items-start justify-between gap-2 flex-wrap">
                       <div className="min-w-0">
                         <div className="font-bold text-sm">
                           {hasQuery && <span className="text-green-700 mr-2">近さ {Math.round(r.score * 100)}%</span>}
+                          {!c.sourceFile && (
+                            <span className="inline-block bg-teal-100 text-teal-800 rounded px-1.5 py-0.5 text-xs font-normal mr-2">この画面で保存</span>
+                          )}
                           {c.title}
                         </div>
                         <div className="text-xs text-gray-600">
                           {c.quoteDate ?? "日付不明"} ／ {c.client || "宛先なし"} ／ 税抜 {yen(c.subtotal)}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
-                        disabled={!index || loadingCaseId !== null}
-                        onClick={() => loadCase(c)}
-                      >
-                        {loadingCaseId === c.id ? "読み込み中..." : isBase ? "もう一度読み込む" : "この見積りを元にする"}
-                      </button>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+                          disabled={!index || loadingCaseId !== null}
+                          title="品目と数量をコピーして、単価を単価表の最新に入れ直した新しい見積りを作ります"
+                          onClick={() => loadCase(c)}
+                        >
+                          {loadingCaseId === `base:${c.id}` ? "読み込み中..." : isBase ? "もう一度読み込む" : "この見積りを元にする"}
+                        </button>
+                        <button
+                          type="button"
+                          className="border border-green-600 text-green-700 bg-white px-3 py-1.5 rounded text-sm hover:bg-green-50 disabled:opacity-50 whitespace-nowrap"
+                          disabled={loadingCaseId !== null}
+                          title="保存した時の内容・単価のまま開いて直します（上書き保存もできます）"
+                          onClick={() => c.id && openCase(c.id)}
+                        >
+                          {loadingCaseId === `open:${c.id}` ? "開いています..." : isLinked && opened?.id === c.id ? "もう一度開く" : "このまま開いて直す"}
+                        </button>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-2">
                       {hasQuery
@@ -710,6 +868,11 @@ export default function QuoteBuilderPage() {
               <p className="text-sm text-green-700 mt-3">「{baseCase.title}」（{baseCase.quoteDate ?? "日付不明"}）を元に下書きを作りました。下で内容を直してください。</p>
             )}
           </>
+        )}
+        {opened && (
+          <p className="text-sm text-green-700 mt-3">
+            「{opened.title}」（{opened.quoteDate ?? "日付不明"}）を、保存した時の内容のまま開きました。下で直して、「5. 見積りを保存」で上書き保存か新しく保存ができます。
+          </p>
         )}
         <p className="text-xs text-gray-500 mt-3">
           {priceError ? <span className="text-red-600">{priceError}</span> : index ? `単価表 ${priceCount.toLocaleString("ja-JP")}件を読み込み済み` : "単価表を読み込み中..."}
@@ -785,6 +948,16 @@ export default function QuoteBuilderPage() {
               <span className={staleCount > 0 ? "text-orange-700 font-bold" : "text-gray-600"}>要確認（古い単価） {staleCount}件</span>
               <span className={specMismatchCount > 0 ? "text-amber-700 font-bold" : "text-gray-600"}>規格違いで当てた単価 {specMismatchCount}件</span>
               {caseCount > 0 && <span className="text-orange-700 font-bold">単価表になく元の見積りの単価 {caseCount}件</span>}
+              {savedCount > 0 && (
+                <span className="text-teal-700">
+                  保存した時の単価 {savedCount}件
+                  {index && (
+                    <button type="button" className="ml-2 text-xs text-blue-600 hover:underline" onClick={refreshSavedPrices}>
+                      単価表の最新に入れ直す
+                    </button>
+                  )}
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-500 mb-1">
               区分・名称・規格・単位・数量・単価を直接直せます。名称と規格は、入力すると過去に使ったものから似た候補が出ます（候補にないものもそのまま入力できます）。
@@ -1243,7 +1416,7 @@ export default function QuoteBuilderPage() {
               {showSettings ? "計算の設定を閉じる" : "計算の設定を変える"}
             </button>
             {showSettings && (
-              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 mt-3 text-sm">
+              <div key={settingsVersion} className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 mt-3 text-sm">
                 <label>雑材料消耗品（材料費の%）
                   <input className={`${input} w-full`} defaultValue={settings.miscRate * 100} onChange={(e) => setSetting("miscRate", e.target.value, true)} />
                 </label>
@@ -1277,6 +1450,112 @@ export default function QuoteBuilderPage() {
                   <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.staleDays} onChange={(e) => setSetting("staleDays", e.target.value)} />
                 </label>
               </div>
+            )}
+          </section>
+
+          {/* 5. 保存 */}
+          <section className="bg-white border rounded-lg p-4 mb-4">
+            <h2 className="font-bold mb-2">5. 見積りを保存</h2>
+            <p className="text-sm text-gray-600 mb-3">
+              保存した見積りは「見積り事例」に入り、あとで「似た見積りから作る」の一覧の「このまま開いて直す」から、保存した時の内容のまま開いて直せます。
+              似た見積りを探す時の候補にもなります。
+            </p>
+            {!canSave ? (
+              <p className="text-sm text-gray-600">保存するには「見積り事例」の「操作」以上の権限が必要です。</p>
+            ) : (
+              <>
+                <div className="text-sm mb-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-gray-600">似た見積りを探す時の条件：</span>
+                    {conditionParts(saveCond).length > 0 ? (
+                      conditionParts(saveCond).map((part, i) => (
+                        <span key={i} className="bg-gray-100 rounded px-1.5 py-0.5 text-xs whitespace-nowrap">{part}</span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-gray-500">未入力（保存する時に、件名と品目から推測して入れます）</span>
+                    )}
+                    {saveNote && <span className="text-xs text-gray-600">メモ：{saveNote}</span>}
+                    <button type="button" className="text-xs text-blue-600 hover:underline" onClick={() => setShowSaveCond((v) => !v)}>
+                      {showSaveCond ? "閉じる" : "条件とメモを直す"}
+                    </button>
+                  </div>
+                  {showSaveCond && (
+                    <div className="border rounded p-3 mt-2 bg-gray-50/60 space-y-3">
+                      <QuoteConditionsForm value={saveCond} onChange={setSaveCond} />
+                      <label className="text-sm block">
+                        メモ（この見積りの特徴など。例：発電機から、ハウス移設あり）
+                        <input className={`${input} w-full`} value={saveNote} onChange={(e) => setSaveNote(e.target.value)} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-sm mb-2">
+                  {linked ? (
+                    <>
+                      上書き保存する先：<b>「{linked.title}」</b>
+                      <span className="text-gray-600">（見積日 {linked.quoteDate ?? "日付不明"} ／ 税抜 {yen(linked.subtotal)}）</span>
+                    </>
+                  ) : (
+                    <span className="text-gray-600">まだ保存していない見積りです。「新しく保存」で保存してください。</span>
+                  )}
+                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+                    disabled={saving}
+                    onClick={() => saveQuote(false)}
+                  >
+                    {saving && !confirmOverwrite ? "保存中..." : "新しく保存"}
+                  </button>
+                  <button
+                    type="button"
+                    className="border border-red-500 text-red-700 bg-white px-5 py-2 rounded hover:bg-red-50 disabled:opacity-40"
+                    disabled={saving || !linked?.id}
+                    title={linked ? `「${linked.title}」を上書きします` : "保存した見積りを開いた時・保存した後に使えます"}
+                    onClick={() => {
+                      setSaveMsg(null);
+                      setConfirmOverwrite(true);
+                    }}
+                  >
+                    上書き保存
+                  </button>
+                  <span className="text-xs text-gray-500">新しく保存すると、元の見積りはそのまま残ります。</span>
+                </div>
+
+                {confirmOverwrite && linked && (
+                  <div className="border-2 border-red-300 bg-red-50 rounded-lg p-3 mt-3 text-sm">
+                    <p className="font-bold text-red-800 mb-1">上書きの確認</p>
+                    <p>
+                      見積り事例の<b>「{linked.title}」</b>（見積日 {linked.quoteDate ?? "日付不明"} ／ 税抜 {yen(linked.subtotal)}）を、
+                      いまの内容（件名「{cover.title || "（件名なし）"}」／ 見積日 {date || "なし"} ／ 税抜 {yen(coverCalc.subtotal)}）で置き換えます。
+                      上書きすると、元の内容には戻せません。
+                    </p>
+                    {linked.sourceFile && (
+                      <p className="text-red-700 mt-1">
+                        これはExcelから登録した過去の見積り（{linked.sourceFile}）です。上書きすると、登録した時の内訳がいまの内容に変わります。
+                        残しておきたい時は「やめる」を押して「新しく保存」してください。
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <button
+                        type="button"
+                        className="bg-red-600 text-white px-4 py-1.5 rounded hover:bg-red-700 disabled:opacity-50"
+                        disabled={saving}
+                        onClick={() => saveQuote(true)}
+                      >
+                        {saving ? "上書き中..." : "上書きする"}
+                      </button>
+                      <button type="button" className="text-sm text-gray-700 hover:underline" disabled={saving} onClick={() => setConfirmOverwrite(false)}>
+                        やめる
+                      </button>
+                      <span className="text-xs text-gray-600">「上書きする」を押すと、もう一度確認が出ます。</span>
+                    </div>
+                  </div>
+                )}
+                {saveMsg && <p className={`text-sm mt-3 ${saveMsg.ok ? "text-green-700" : "text-red-600"}`}>{saveMsg.text}</p>}
+              </>
             )}
           </section>
 
