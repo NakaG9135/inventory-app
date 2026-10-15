@@ -10,7 +10,7 @@ import {
   type QuoteCaseInfo,
   type QuoteCaseRow,
 } from "./cases";
-import type { QuoteSnapshot } from "./saved";
+import type { PriceRegistration, QuoteSnapshot } from "./saved";
 
 // 条件だけの一覧（内訳は大きいので、使う時に1件ずつ読む）
 export async function fetchCaseInfos(): Promise<QuoteCaseInfo[]> {
@@ -105,4 +105,25 @@ export async function updateCaseInfo(id: string, c: QuoteCaseInfo): Promise<void
 export async function deleteCase(id: string): Promise<void> {
   const { error } = await supabase.from("quote_cases").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// 見積りの単価を材料単価に登録する。replace＝この見積りから前に登録した分を消してから入れる（上書き保存）
+export async function registerQuotePrices(
+  caseId: string,
+  rows: PriceRegistration[],
+  meta: { sourceFile: string; company: string },
+  replace: boolean,
+): Promise<{ inserted: number; removed: number }> {
+  let removed = 0;
+  if (replace) {
+    const { data, error } = await supabase.from("material_prices").delete().eq("quote_case_id", caseId).select("id");
+    if (error) throw new Error(error.message);
+    removed = data?.length ?? 0;
+  }
+  if (rows.length === 0) return { inserted: 0, removed };
+  const { error } = await supabase
+    .from("material_prices")
+    .insert(rows.map((r) => ({ ...r, source_file: meta.sourceFile, company_name: meta.company, quote_case_id: caseId })));
+  if (error) throw new Error(error.message);
+  return { inserted: rows.length, removed };
 }

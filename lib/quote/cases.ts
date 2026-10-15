@@ -4,7 +4,7 @@ import { withAutoItems } from "./calc";
 import { cleanLabel, normKey } from "./normalize";
 import { text as cellText, findHeader, newId, parseCoverSheet, parseDraftSheet, toNumber } from "./parseDraft";
 import { applyPriceTable, type PriceIndex } from "./prices";
-import type { AutoKind, CoverExtra, QuoteGroup, QuoteItem, Section } from "./types";
+import type { AutoKind, CoverExtra, QuoteGroup, QuoteItem, SaleType, Section } from "./types";
 
 // 引込：電灯のみ / 動力のみ / 両方
 export type ServiceKind = "" | "light" | "power" | "both";
@@ -55,6 +55,7 @@ export type CaseItem = {
   unitPrice: number | null;
   note: string;
   auto?: AutoKind;
+  saleType?: SaleType; // 材料の区分（見積り作成で保存した見積りだけ）
 };
 export type CaseGroup = { name: string; spec: string; notes: string[]; items: CaseItem[] };
 export type CaseExtra = { name: string; spec: string; unit: string; qty: number; unitPrice: number };
@@ -472,6 +473,7 @@ export function draftFromCase(
       stale: false,
       note: i.note ?? "",
       ...(i.auto ? { auto: i.auto } : {}),
+      ...(i.saleType ? { saleType: i.saleType } : {}),
       ...(!i.auto && i.unitPrice !== null && i.unitPrice > 0
         ? { fallback: { unitPrice: i.unitPrice, date: c.quoteDate, file: source } }
         : {}),

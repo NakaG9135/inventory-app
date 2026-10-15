@@ -1,5 +1,7 @@
 // 見積り作成の画面で作った見積りを見積り事例（quote_cases）に保存し、あとで開いて直す
 import { isBlankItem, type GroupCalc } from "./calc";
+import { normKey } from "./normalize";
+import { lookupPrice, type PriceIndex } from "./prices";
 import {
   EMPTY_CONDITIONS,
   conditionParts,
@@ -19,6 +21,7 @@ import {
   type QuoteGroup,
   type QuoteItem,
   type QuoteSettings,
+  type Section,
 } from "./types";
 
 // 画面の中身（editor 列）。宛先・件名・見積日は事例の列（見積り事例の画面で直せる）を使う。
@@ -91,6 +94,7 @@ export function caseFromEditor(s: EditorState, cond: CaseConditions, note: strin
         unitPrice: i.unitPrice,
         note: i.note,
         ...(i.auto ? { auto: i.auto } : {}),
+        ...(i.saleType && i.section === "material" ? { saleType: i.saleType } : {}),
       })),
   }));
   const extras: CaseExtra[] = s.extras
@@ -150,4 +154,48 @@ export function openQuote(c: QuoteCase, editor: unknown): OpenedQuote {
     fixedRemarks: EMPTY_FIXED_REMARKS,
     settings: null,
   };
+}
+
+// ========== 材料単価への登録 ==========
+
+export type PriceRegistration = {
+  category: string;
+  name: string;
+  specification: string;
+  unit: string;
+  unit_price: number;
+  sale_type: string;
+};
+
+const CATEGORY: Record<Section, string> = { material: "材料費", labor: "労務費", other: "その他" };
+
+// 材料単価に登録する行：単価表（上書きの時は、この見積りから前に登録した分を除いたもの）にない単価・違う単価。
+// 自動計算の行と単価のない行は登録しない。同じ品目が何行かあれば最初の行
+export function pricesToRegister(groups: QuoteGroup[], index: PriceIndex | null, staleDays: number): PriceRegistration[] {
+  const out = new Map<string, PriceRegistration>();
+  for (const g of groups) {
+    for (const i of g.items) {
+      if (i.auto || isBlankItem(i) || !i.name.trim() || i.unitPrice === null || !(i.unitPrice > 0)) continue;
+      const saleType = i.section === "material" ? (i.saleType ?? "") : "";
+      const hit = index ? lookupPrice(index, i, staleDays) : null;
+      if (hit && !hit.nameOnly && hit.candidate.unitPrice === i.unitPrice && (!saleType || hit.candidate.saleType === saleType)) continue;
+      const category = CATEGORY[i.section];
+      const k = [category, normKey(i.name), normKey(i.spec), saleType].join("|");
+      if (out.has(k)) continue;
+      out.set(k, {
+        category,
+        name: i.name.trim(),
+        specification: i.spec.trim(),
+        unit: i.unit.trim(),
+        unit_price: i.unitPrice,
+        sale_type: saleType,
+      });
+    }
+  }
+  return [...out.values()];
+}
+
+// 登録する単価の取込元（「2026-10-15-件名 [見積り作成]」。先頭の日付が単価の日付になる）
+export function quoteSourceName(date: string, title: string): string {
+  return `${date}-${title.trim() || "件名なし"} [見積り作成]`;
 }
