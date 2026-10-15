@@ -41,6 +41,7 @@ export default function QuoteCasesPage() {
   // 操作: 登録・条件の修正 / 編集: 削除
   const canOperate = can("quote_cases", LEVEL_OPERATE);
   const canEdit = can("quote_cases", LEVEL_EDIT);
+  const canQuote = can("quotes", LEVEL_VIEW);
 
   const [cases, setCases] = useState<QuoteCaseInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,7 +141,7 @@ export default function QuoteCasesPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h1 className="text-2xl font-bold">見積り事例</h1>
-        {can("quotes", LEVEL_VIEW) && (
+        {canQuote && (
           <Link href="/dashboard/material-prices/quote" className="bg-green-600 text-white text-sm px-4 py-2 rounded hover:bg-green-700">
             似た見積りから作る
           </Link>
@@ -150,6 +151,7 @@ export default function QuoteCasesPage() {
       <p className="text-sm text-gray-600 mb-4">
         過去の見積り（最終版のExcel：表紙「見積書」＋「内訳」）を、工事種類・ハウスの大きさ・引込容量などの条件と一緒に登録しておくと、
         「見積り作成」で新しい現場の条件に近い見積りを探して、その品目と数量を下書きに使えます。
+        「見積り作成」の画面で保存した見積りもここに入り、「見積り作成で開く」から保存した時の内容のまま開いて直せます。
       </p>
 
       {canOperate && (
@@ -241,14 +243,14 @@ export default function QuoteCasesPage() {
                   <th className="p-2 border">件名</th>
                   <th className="p-2 border">条件</th>
                   <th className="p-2 border text-right whitespace-nowrap">税抜小計</th>
-                  {(canOperate || canEdit) && <th className="p-2 border"></th>}
+                  {(canQuote || canOperate || canEdit) && <th className="p-2 border"></th>}
                 </tr>
               </thead>
               <tbody>
                 {shown.map((c) =>
                   editing?.id === c.id ? (
                     <tr key={c.id}>
-                      <td className="p-3 border bg-blue-50/40" colSpan={canOperate || canEdit ? 5 : 4}>
+                      <td className="p-3 border bg-blue-50/40" colSpan={canQuote || canOperate || canEdit ? 5 : 4}>
                         <CaseFields value={editing} onChange={setEditing} />
                         <div className="flex gap-2 mt-3">
                           <button
@@ -269,7 +271,12 @@ export default function QuoteCasesPage() {
                     <tr key={c.id} className="align-top">
                       <td className="p-2 border whitespace-nowrap">{c.quoteDate ?? "-"}</td>
                       <td className="p-2 border">
-                        <div>{c.title}</div>
+                        <div>
+                          {!c.sourceFile && (
+                            <span className="inline-block bg-teal-100 text-teal-800 rounded px-1.5 py-0.5 text-xs mr-2">見積り作成で保存</span>
+                          )}
+                          {c.title}
+                        </div>
                         <div className="text-xs text-gray-500">{c.client}</div>
                         {c.note && <div className="text-xs text-gray-600 mt-0.5">{c.note}</div>}
                       </td>
@@ -282,8 +289,13 @@ export default function QuoteCasesPage() {
                         </div>
                       </td>
                       <td className="p-2 border text-right whitespace-nowrap">{yen(c.subtotal)}</td>
-                      {(canOperate || canEdit) && (
+                      {(canQuote || canOperate || canEdit) && (
                         <td className="p-2 border whitespace-nowrap">
+                          {canQuote && (
+                            <Link href={`/dashboard/material-prices/quote?open=${c.id}`} className="text-xs text-green-700 hover:underline mr-3">
+                              見積り作成で開く
+                            </Link>
+                          )}
                           {canOperate && (
                             <button type="button" className="text-xs text-blue-600 hover:underline mr-3" onClick={() => setEditing({ ...c })}>
                               条件を直す

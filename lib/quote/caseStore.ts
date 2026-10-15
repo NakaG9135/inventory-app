@@ -10,6 +10,7 @@ import {
   type QuoteCaseInfo,
   type QuoteCaseRow,
 } from "./cases";
+import type { QuoteSnapshot } from "./saved";
 
 // 条件だけの一覧（内訳は大きいので、使う時に1件ずつ読む）
 export async function fetchCaseInfos(): Promise<QuoteCaseInfo[]> {
@@ -48,6 +49,40 @@ export async function fetchCase(id: string): Promise<QuoteCase> {
   const { data, error } = await supabase.from("quote_cases").select(`${CASE_INFO_COLUMNS}, groups, extras`).eq("id", id).single();
   if (error) throw new Error(error.message);
   return caseFromRow(data as QuoteCaseRow);
+}
+
+// 保存した画面の中身（ない時・列がまだない時は null）
+export async function fetchCaseEditor(id: string): Promise<unknown> {
+  const { data, error } = await supabase.from("quote_cases").select("editor").eq("id", id).single();
+  if (error) {
+    if (error.code === "42703") return null;
+    throw new Error(error.message);
+  }
+  return (data as { editor: unknown } | null)?.editor ?? null;
+}
+
+// 見積り作成の画面で作った見積りを保存する。overwriteId を渡すと、その見積りを上書きする
+export async function saveQuoteCase(c: QuoteCase, editor: QuoteSnapshot, overwriteId: string | null): Promise<string> {
+  const row = { ...caseToRow(c), editor };
+  const fail = (error: { code?: string; message: string }) =>
+    new Error(
+      error.code === "PGRST204" || error.code === "42703"
+        ? "保存の準備（データベースに保存用の列を足す作業）がまだ済んでいません。"
+        : error.message,
+    );
+  if (overwriteId) {
+    const { data, error } = await supabase
+      .from("quote_cases")
+      .update({ ...row, updated_at: new Date().toISOString() })
+      .eq("id", overwriteId)
+      .select("id");
+    if (error) throw fail(error);
+    if (!data || data.length === 0) throw new Error("上書きする見積りが見つかりません（削除されたか、上書きする権限がありません）。");
+    return overwriteId;
+  }
+  const { data, error } = await supabase.from("quote_cases").insert(row).select("id").single();
+  if (error) throw fail(error);
+  return (data as { id: string }).id;
 }
 
 export async function insertCase(c: QuoteCase): Promise<string> {
