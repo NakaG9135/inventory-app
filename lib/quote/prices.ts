@@ -35,6 +35,7 @@ export type PriceIndex = {
   loose: Map<string, PriceCandidate[]>;
   byName: Map<string, PriceCandidate[]>;
   all: PriceCandidate[];
+  listed: Set<string>; // 材料単価にある品目（単価なしの行も入れる）：一覧|名称|規格|区分
 };
 
 export type PriceLookup = {
@@ -79,9 +80,21 @@ function push(map: Map<string, PriceCandidate[]>, k: string, c: PriceCandidate) 
   else map.set(k, [c]);
 }
 
+function listedKey(category: string, name: string, spec: string, saleType: string) {
+  return `${category}|${key(name, spec)}|${saleType}`;
+}
+
+// 材料単価に同じ品目（同じ一覧・名称・規格で、同じ区分か区分なし）の行があるか。単価なしの行も数える
+export function isListed(index: PriceIndex, item: Pick<QuoteItem, "name" | "spec" | "section" | "saleType">): boolean {
+  const category = SECTION_CATEGORY[item.section];
+  const saleType = item.section === "material" ? (item.saleType ?? "") : "";
+  return index.listed.has(listedKey(category, item.name, item.spec, saleType)) || index.listed.has(listedKey(category, item.name, item.spec, ""));
+}
+
 export function buildPriceIndex(rows: PriceRow[]): PriceIndex {
-  const index: PriceIndex = { exact: new Map(), loose: new Map(), byName: new Map(), all: [] };
+  const index: PriceIndex = { exact: new Map(), loose: new Map(), byName: new Map(), all: [], listed: new Set() };
   for (const r of rows) {
+    if (r.name) index.listed.add(listedKey(r.category || "材料費", r.name, r.specification ?? "", r.sale_type ?? ""));
     const price = Number(r.unit_price);
     if (!r.name || !(price > 0)) continue;
     const c: PriceCandidate = {
