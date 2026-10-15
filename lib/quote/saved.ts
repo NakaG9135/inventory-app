@@ -1,7 +1,7 @@
 // 見積り作成の画面で作った見積りを見積り事例（quote_cases）に保存し、あとで開いて直す
 import { isBlankItem, type GroupCalc } from "./calc";
 import { normKey } from "./normalize";
-import { lookupPrice, type PriceIndex } from "./prices";
+import { isListed, lookupPrice, type PriceIndex } from "./prices";
 import {
   EMPTY_CONDITIONS,
   conditionParts,
@@ -170,24 +170,32 @@ export type PriceRegistration = {
 const CATEGORY: Record<Section, string> = { material: "材料費", labor: "労務費", other: "その他" };
 
 // 材料単価に登録する行：単価表（上書きの時は、この見積りから前に登録した分を除いたもの）にない単価・違う単価。
-// 自動計算の行と単価のない行は登録しない。同じ品目が何行かあれば最初の行
+// 単価が空の品目も、材料単価にまだない品目なら単価なし（0）で登録する（あとで単価を入れる。単価表の検索には使わない）。
+// 自動計算の行は登録しない。同じ品目が何行かあれば最初の行（単価のある行を優先）
 export function pricesToRegister(groups: QuoteGroup[], index: PriceIndex | null, staleDays: number): PriceRegistration[] {
   const out = new Map<string, PriceRegistration>();
   for (const g of groups) {
     for (const i of g.items) {
-      if (i.auto || isBlankItem(i) || !i.name.trim() || i.unitPrice === null || !(i.unitPrice > 0)) continue;
+      if (i.auto || isBlankItem(i) || !i.name.trim()) continue;
+      const priced = i.unitPrice !== null && i.unitPrice > 0;
       const saleType = i.section === "material" ? (i.saleType ?? "") : "";
-      const hit = index ? lookupPrice(index, i, staleDays) : null;
-      if (hit && !hit.nameOnly && hit.candidate.unitPrice === i.unitPrice && (!saleType || hit.candidate.saleType === saleType)) continue;
+      if (priced) {
+        const hit = index ? lookupPrice(index, i, staleDays) : null;
+        if (hit && !hit.nameOnly && hit.candidate.unitPrice === i.unitPrice && (!saleType || hit.candidate.saleType === saleType)) continue;
+      } else if (index && isListed(index, i)) {
+        continue;
+      }
       const category = CATEGORY[i.section];
       const k = [category, normKey(i.name), normKey(i.spec), saleType].join("|");
-      if (out.has(k)) continue;
+      const prev = out.get(k);
+      // 同じ品目で単価のある行があれば、そちらを登録する
+      if (prev && (prev.unit_price > 0 || !priced)) continue;
       out.set(k, {
         category,
         name: i.name.trim(),
         specification: i.spec.trim(),
         unit: i.unit.trim(),
-        unit_price: i.unitPrice,
+        unit_price: priced ? (i.unitPrice as number) : 0,
         sale_type: saleType,
       });
     }

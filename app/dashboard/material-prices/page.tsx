@@ -813,7 +813,9 @@ export default function MaterialPricesPage() {
                   <td className="border p-2">{item.name}</td>
                   <td className="border p-2">{item.specification}</td>
                   <td className="border p-2">{item.unit}</td>
-                  <td className="border p-2 text-right">¥{Number(item.unit_price).toLocaleString("ja-JP")}</td>
+                  <td className="border p-2 text-right whitespace-nowrap">
+                    {Number(item.unit_price) > 0 ? `¥${Number(item.unit_price).toLocaleString("ja-JP")}` : <span className="text-orange-700 text-xs">単価なし</span>}
+                  </td>
                   {activeTab === "材料費" && <td className="border p-2 text-xs whitespace-nowrap">{item.sale_type}</td>}
                   <td className="border p-2 text-xs">{companyOf(item)}</td>
                   <td className="border p-2 text-xs text-gray-500">{item.source_file}</td>

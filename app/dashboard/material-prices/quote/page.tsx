@@ -104,7 +104,8 @@ function regSummary(rows: PriceRegistration[]): string {
     .map((c) => [c, rows.filter((r) => r.category === c).length] as const)
     .filter(([, n]) => n > 0)
     .map(([c, n]) => `${c} ${n}件`);
-  return parts.length > 0 ? parts.join("・") : "なし";
+  const noPrice = rows.filter((r) => !(r.unit_price > 0)).length;
+  return parts.length > 0 ? parts.join("・") + (noPrice > 0 ? `（うち単価なし ${noPrice}件）` : "") : "なし";
 }
 
 function todayString() {
@@ -491,6 +492,8 @@ export default function QuoteBuilderPage() {
     () => pricesToRegister(groups, indexWithoutLinked, settings.staleDays),
     [groups, indexWithoutLinked, settings.staleDays],
   );
+  // 「登録する単価を見る」の一覧（上書き先がある時は上書き保存で登録する分）
+  const regList = linked ? regOverwrite : regNew;
 
   const allItems = groups.flatMap((g) => g.items).filter((i) => !i.auto && !isBlankItem(i));
   const missingCount = allItems.filter((i) => i.unitPrice === null).length;
@@ -1590,11 +1593,11 @@ export default function QuoteBuilderPage() {
                     <label className="flex items-start gap-2">
                       <input type="checkbox" className="mt-1" checked={registerPrices} onChange={(e) => setRegisterPrices(e.target.checked)} />
                       <span>
-                        保存する時に、単価表にない単価・変えた単価を「材料単価」にも登録する（会社名「{cover.client.trim() || "宛先なし"}」）
+                        保存する時に、単価表にない品目・変えた単価を「材料単価」にも登録する（会社名「{cover.client.trim() || "宛先なし"}」。単価が空の品目は単価なしで登録）
                         <span className="block text-xs text-gray-600">
                           新しく保存：{regSummary(regNew)}
                           {linked && ` ／ 上書き保存：${regSummary(regOverwrite)}（この見積りから前に登録した単価と入れ替え）`}
-                          {regNew.length > 0 && (
+                          {regList.length > 0 && (
                             <button type="button" className="ml-2 text-blue-600 hover:underline" onClick={() => setShowRegList((v) => !v)}>
                               {showRegList ? "閉じる" : "登録する単価を見る"}
                             </button>
@@ -1602,7 +1605,7 @@ export default function QuoteBuilderPage() {
                         </span>
                       </span>
                     </label>
-                    {showRegList && regNew.length > 0 && (
+                    {showRegList && regList.length > 0 && (
                       <div className="overflow-x-auto mt-2 ml-6">
                         <table className="text-xs border-collapse">
                           <thead>
@@ -1616,13 +1619,13 @@ export default function QuoteBuilderPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {regNew.map((r, i) => (
+                            {regList.map((r, i) => (
                               <tr key={i}>
                                 <td className="p-1 border whitespace-nowrap">{r.category}</td>
                                 <td className="p-1 border">{r.name}</td>
                                 <td className="p-1 border">{displayText(r.specification)}</td>
                                 <td className="p-1 border">{r.unit}</td>
-                                <td className="p-1 border text-right whitespace-nowrap">{yen(r.unit_price)}</td>
+                                <td className="p-1 border text-right whitespace-nowrap">{r.unit_price > 0 ? yen(r.unit_price) : <span className="text-orange-700">単価なし</span>}</td>
                                 <td className="p-1 border whitespace-nowrap">{r.sale_type}</td>
                               </tr>
                             ))}
@@ -1681,7 +1684,7 @@ export default function QuoteBuilderPage() {
                       <p className="mt-1">
                         {canReplace
                           ? `材料単価の、この見積りから前に登録した単価も、いまの内容（${regSummary(regOverwrite)}）に入れ替えます。`
-                          : `材料単価には、単価表にない単価・変えた単価（${regSummary(regNew)}）を足します。`}
+                          : `材料単価には、単価表にない品目・変えた単価（${regSummary(regNew)}）を足します。`}
                       </p>
                     )}
                     {linked.sourceFile && (
