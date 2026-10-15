@@ -1,9 +1,15 @@
+// 過去の見積りにある書き間違い。取り込む時に正しい表記に直す（照合のキーでも同じ品目として扱う）
+const TYPOS: [RegExp, string][] = [[/キューピクル|ｷｭｰﾋﾟｸﾙ/g, "キュービクル"]];
+
+export function fixTypos(value: string): string {
+  return TYPOS.reduce((s, [wrong, right]) => s.replace(wrong, right), value);
+}
+
 // 名称・規格の表記ゆれを吸収して、同じ品目として照合するためのキーを作る
 //   全角/半角（ｍ/m、ｹ/ケ）、ヶ/ケ、大文字/小文字（Ea/EA）、空白の有無、
-//   ㎟の表記（外字・㎟・mm2・sq）、×/x の違いを同じ扱いにする
+//   ㎟の表記（外字・㎟・mm2・sq）、×/x の違い、書き間違い（キューピクル）を同じ扱いにする
 export function normKey(value: string): string {
-  return String(value ?? "")
-    .normalize("NFKC")
+  return fixTypos(String(value ?? "").normalize("NFKC"))
     .replace(/\uE000/g, "SQ") // 古いExcelで㎟が外字になっているもの
     .toUpperCase()
     .replace(/MM2|SQ|□/g, "SQ")

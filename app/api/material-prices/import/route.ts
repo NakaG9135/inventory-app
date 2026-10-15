@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { fixTypos } from "@/lib/quote/normalize";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
@@ -107,7 +108,8 @@ export async function POST(request: Request) {
 
       for (let i = 2; i < rows.length; i++) {
         const row = rows[i];
-        const name = String(row[1] ?? "").trim();
+        // 過去の見積りの書き間違い（キューピクル→キュービクル）は直して入れる
+        const name = fixTypos(String(row[1] ?? "").trim());
 
         if (name === "材料費") { currentCategory = "材料費"; continue; }
         if (name === "労務費") { currentCategory = "労務費"; continue; }
@@ -115,7 +117,7 @@ export async function POST(request: Request) {
         if (name.includes("【") && name.includes("】")) continue;
         if (!name) continue;
 
-        const specification = String(row[2] ?? "").trim();
+        const specification = fixTypos(String(row[2] ?? "").trim());
         const unit = String(row[3] ?? "").trim();
         const unitPrice = parsePrice(row[5]);
 

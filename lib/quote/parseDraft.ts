@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { cleanLabel, displayText } from "./normalize";
+import { cleanLabel, displayText, fixTypos } from "./normalize";
 import type { CoverInfo, QuoteGroup, QuoteItem, Section } from "./types";
 
 export type ParsedDraft = {
@@ -30,8 +30,9 @@ export function toNumber(value: unknown): number | null {
   return parseFloat(s);
 }
 
+// セルの文字（前後の空白を除き、㎟の外字と書き間違いを直す）
 export function text(value: unknown): string {
-  return displayText(String(value ?? "").trim());
+  return displayText(fixTypos(String(value ?? "").trim()));
 }
 
 export type Columns = { no: number; name: number; spec: number; unit: number; qty: number; price: number; note: number };
