@@ -6,7 +6,7 @@ import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { usePermissions } from "@/components/PermissionsProvider";
 import SuggestInput, { type SuggestOption } from "@/components/SuggestInput";
-import { LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
+import { LEVEL_EDIT, LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import { supabase } from "@/lib/supabaseClient";
 import { calcCover, calcGroup, isBlankItem, withAutoItems } from "@/lib/quote/calc";
 import {
@@ -19,7 +19,7 @@ import {
   type MatchLevel,
   type QuoteCaseInfo,
 } from "@/lib/quote/cases";
-import { fetchAllCaseGroups, fetchCase, fetchCaseEditor, fetchCaseInfos, saveQuoteCase } from "@/lib/quote/caseStore";
+import { fetchAllCaseGroups, fetchCase, fetchCaseEditor, fetchCaseInfos, registerQuotePrices, saveQuoteCase } from "@/lib/quote/caseStore";
 import { buildCatalog, learnPairs, mainUnit, nameOptions, noteOptions, specOptions } from "@/lib/quote/catalog";
 import {
   addItem,
@@ -37,7 +37,18 @@ import {
 import { buildQuoteWorkbook, quoteFileName } from "@/lib/quote/exportExcel";
 import { displayText, normKey } from "@/lib/quote/normalize";
 import { newId, parseDraftWorkbook } from "@/lib/quote/parseDraft";
-import { caseFromEditor, conditionsOf, infoOf, mergeConditions, openQuote, snapshotOf, type EditorState } from "@/lib/quote/saved";
+import {
+  caseFromEditor,
+  conditionsOf,
+  infoOf,
+  mergeConditions,
+  openQuote,
+  pricesToRegister,
+  quoteSourceName,
+  snapshotOf,
+  type EditorState,
+  type PriceRegistration,
+} from "@/lib/quote/saved";
 import { fetchCompanyLines, storeCompanyLines } from "@/lib/quote/settingsStore";
 import {
   applyPriceTable,
@@ -50,6 +61,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   EMPTY_FIXED_REMARKS,
+  SALE_TYPES,
   SECTION_LABELS,
   type CoverExtra,
   type CoverInfo,
@@ -57,6 +69,7 @@ import {
   type QuoteGroup,
   type QuoteItem,
   type QuoteSettings,
+  type SaleType,
   type Section,
 } from "@/lib/quote/types";
 
@@ -85,6 +98,14 @@ const UNITS = ["ｍ", "本", "台", "面", "ヶ所", "ケ", "組", "式", "回",
 
 const yen = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`;
 const num = (n: number | null) => (n === null ? "" : n.toLocaleString("ja-JP"));
+
+function regSummary(rows: PriceRegistration[]): string {
+  const parts = ["材料費", "労務費", "その他"]
+    .map((c) => [c, rows.filter((r) => r.category === c).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([c, n]) => `${c} ${n}件`);
+  return parts.length > 0 ? parts.join("・") : "なし";
+}
 
 function todayString() {
   const d = new Date();
@@ -118,7 +139,7 @@ async function fetchAllPrices(): Promise<PriceRow[]> {
   for (let from = 0; ; from += size) {
     const { data, error } = await supabase
       .from("material_prices")
-      .select("id, category, name, specification, unit, unit_price, source_file, created_at, updated_at")
+      .select("id, category, name, specification, unit, unit_price, source_file, created_at, updated_at, sale_type, company_name, quote_case_id")
       .order("id")
       .range(from, from + size - 1);
     if (error) throw new Error(error.message);
@@ -186,7 +207,11 @@ export default function QuoteBuilderPage() {
   const canPrices = can("material_prices", LEVEL_VIEW);
   const canCases = can("quote_cases", LEVEL_VIEW);
   const canSave = can("quote_cases", LEVEL_OPERATE);
-  const [index, setIndex] = useState<PriceIndex | null>(null);
+  // 材料単価への登録（操作）と、上書きの時に前に登録した分を消す（編集）
+  const canRegister = can("material_prices", LEVEL_OPERATE);
+  const canReplace = can("material_prices", LEVEL_EDIT);
+  const [priceRows, setPriceRows] = useState<PriceRow[] | null>(null);
+  const index = useMemo<PriceIndex | null>(() => (priceRows ? buildPriceIndex(priceRows) : null), [priceRows]);
   const [priceError, setPriceError] = useState<string | null>(null);
 
   // 作り方：下書きExcelから / 似た見積りから
@@ -208,7 +233,9 @@ export default function QuoteBuilderPage() {
   const [showSaveCond, setShowSaveCond] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [saveMsgs, setSaveMsgs] = useState<{ ok: boolean; text: string }[]>([]);
+  const [registerPrices, setRegisterPrices] = useState(true);
+  const [showRegList, setShowRegList] = useState(false);
 
   const [fileName, setFileName] = useState("");
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
@@ -255,7 +282,7 @@ export default function QuoteBuilderPage() {
       })
       .catch(() => setCompanyStore("local"));
     fetchAllPrices()
-      .then((rows) => setIndex(buildPriceIndex(rows)))
+      .then(setPriceRows)
       .catch((e) => setPriceError(`単価表の読み込みに失敗しました: ${e instanceof Error ? e.message : String(e)}`));
     // 事例の一覧は「似た見積りから」と宛先の候補に使う
     fetchCaseInfos()
@@ -340,7 +367,7 @@ export default function QuoteBuilderPage() {
     setSaveCond(cond);
     setSaveNote(note);
     setConfirmOverwrite(false);
-    setSaveMsg(null);
+    setSaveMsgs([]);
   };
 
   const loadCase = async (info: QuoteCaseInfo) => {
@@ -454,6 +481,17 @@ export default function QuoteBuilderPage() {
   const calcs = useMemo(() => groups.map((g) => calcGroup(g, settings)), [groups, settings]);
   const coverCalc = useMemo(() => calcCover(calcs, extras, settings), [calcs, extras, settings]);
 
+  // 保存した時に材料単価に登録する単価。上書きの時は、この見積りから前に登録した分を除いた単価表と比べる
+  const indexWithoutLinked = useMemo(
+    () => (priceRows && linked?.id ? buildPriceIndex(priceRows.filter((r) => r.quote_case_id !== linked.id)) : index),
+    [priceRows, linked, index],
+  );
+  const regNew = useMemo(() => pricesToRegister(groups, index, settings.staleDays), [groups, index, settings.staleDays]);
+  const regOverwrite = useMemo(
+    () => pricesToRegister(groups, indexWithoutLinked, settings.staleDays),
+    [groups, indexWithoutLinked, settings.staleDays],
+  );
+
   const allItems = groups.flatMap((g) => g.items).filter((i) => !i.auto && !isBlankItem(i));
   const missingCount = allItems.filter((i) => i.unitPrice === null).length;
   const staleCount = allItems.filter((i) => i.source === "table" && i.stale).length;
@@ -505,6 +543,20 @@ export default function QuoteBuilderPage() {
       const moved = changeSection(g, iid, section, index, settings.staleDays);
       return section === "material" ? commitMaterial(moved, iid, null, pairCtx) : moved;
     });
+  };
+
+  // 材料の区分を変えた時は、その区分の単価を当て直す（手入力の単価はそのまま。単価表にない時は今の単価のまま）
+  const setItemSaleType = (gid: string, iid: string, saleType: SaleType) => {
+    updateGroup(gid, (g) => ({
+      ...g,
+      items: g.items.map((i) => {
+        if (i.id !== iid) return i;
+        const next: QuoteItem = { ...i, saleType: saleType || undefined };
+        if (!saleType) delete next.saleType;
+        const priced = reprice(next, index, settings.staleDays, false);
+        return priced.source === "none" && i.unitPrice !== null ? next : priced;
+      }),
+    }));
   };
 
   const addRow = (gid: string, section: Section) => {
@@ -626,7 +678,7 @@ export default function QuoteBuilderPage() {
   // 見積り事例に保存する。overwrite＝開いている見積り（linked）を上書き。上書きは画面の確認とこの確認の2回
   const saveQuote = async (overwrite: boolean) => {
     if (!cover.title.trim()) {
-      setSaveMsg({ ok: false, text: "件名を入れてから保存してください（「2. 表紙の内容」の件名）。" });
+      setSaveMsgs([{ ok: false, text: "件名を入れてから保存してください（「2. 表紙の内容」の件名）。" }]);
       return;
     }
     if (overwrite) {
@@ -634,7 +686,7 @@ export default function QuoteBuilderPage() {
       if (!confirm(`本当に「${linked.title}」を上書きしますか？\n上書きすると、元の内容には戻せません。`)) return;
     }
     setSaving(true);
-    setSaveMsg(null);
+    setSaveMsgs([]);
     try {
       const state: EditorState = {
         client: cover.client,
@@ -654,15 +706,38 @@ export default function QuoteBuilderPage() {
       setLinked({ ...infoOf(c), id });
       setSaveCond(conditionsOf(c));
       setConfirmOverwrite(false);
-      setSaveMsg({
-        ok: true,
-        text: overwrite
-          ? `「${c.title}」を上書き保存しました。`
-          : `「${c.title}」を新しく保存しました。このあと直した時は「上書き保存」でこの見積りを更新できます。`,
-      });
+      const msgs = [
+        {
+          ok: true,
+          text: overwrite
+            ? `「${c.title}」を上書き保存しました。`
+            : `「${c.title}」を新しく保存しました。このあと直した時は「上書き保存」でこの見積りを更新できます。`,
+        },
+      ];
+      if (registerPrices && canRegister) {
+        // 上書きで前に登録した分を消せない（権限がない）時は、単価表にもうある単価は入れない
+        const replace = overwrite && canReplace;
+        const rows = replace ? regOverwrite : regNew;
+        try {
+          const r = await registerQuotePrices(id, rows, { sourceFile: quoteSourceName(c.quoteDate ?? todayString(), c.title), company: c.client }, replace);
+          msgs.push({
+            ok: true,
+            text:
+              r.inserted > 0
+                ? `材料単価に${r.inserted}件（${regSummary(rows)}）を会社名「${c.client || "宛先なし"}」で登録しました。${r.removed > 0 ? `前に登録した${r.removed}件と入れ替えました。` : ""}`
+                : r.removed > 0
+                  ? `材料単価の、この見積りから前に登録した${r.removed}件を消しました（登録する新しい単価はありません）。`
+                  : "材料単価に登録する新しい単価はありませんでした。",
+          });
+          fetchAllPrices().then(setPriceRows).catch(() => {});
+        } catch (e) {
+          msgs.push({ ok: false, text: `見積りは保存しましたが、材料単価への登録に失敗しました: ${e instanceof Error ? e.message : String(e)}` });
+        }
+      }
+      setSaveMsgs(msgs);
       fetchCaseInfos().then(setCaseInfos).catch(() => {});
     } catch (e) {
-      setSaveMsg({ ok: false, text: `保存に失敗しました: ${e instanceof Error ? e.message : String(e)}` });
+      setSaveMsgs([{ ok: false, text: `保存に失敗しました: ${e instanceof Error ? e.message : String(e)}` }]);
     } finally {
       setSaving(false);
     }
@@ -970,6 +1045,9 @@ export default function QuoteBuilderPage() {
             <p className="text-xs text-gray-500 mb-3">
               行の順番は、左の ⠿ をドラッグするか ▲▼ で、同じ区分（材料費・労務費・その他）の中で入れ替えられます。Excelの内訳もこの順番で出ます。
             </p>
+            <p className="text-xs text-gray-500 mb-3">
+              材料費の行は、区分の下で「新品売りつけ・中古売りつけ・新品リース・中古リース」を選べます。選ぶと材料単価の同じ区分の単価（なければ区分なしの単価）を当て、保存した時は材料単価にもその区分で登録します。
+            </p>
             {caseGroupsError && <p className="text-xs text-orange-700 mb-3">{caseGroupsError}</p>}
             <datalist id="quote-units">
               {UNITS.map((u) => <option key={u} value={u} />)}
@@ -1093,15 +1171,30 @@ export default function QuoteBuilderPage() {
                                 {item.auto ? (
                                   SECTION_LABELS[item.section]
                                 ) : (
-                                  <select
-                                    className="border rounded px-0.5 py-0.5 text-xs bg-white"
-                                    value={original.section}
-                                    onChange={(e) => setItemSection(g.id, item.id, e.target.value as Section)}
-                                  >
-                                    {SECTIONS.map((s) => (
-                                      <option key={s} value={s}>{SECTION_LABELS[s]}</option>
-                                    ))}
-                                  </select>
+                                  <>
+                                    <select
+                                      className="block border rounded px-0.5 py-0.5 text-xs bg-white"
+                                      value={original.section}
+                                      onChange={(e) => setItemSection(g.id, item.id, e.target.value as Section)}
+                                    >
+                                      {SECTIONS.map((s) => (
+                                        <option key={s} value={s}>{SECTION_LABELS[s]}</option>
+                                      ))}
+                                    </select>
+                                    {original.section === "material" && (
+                                      <select
+                                        className={`block mt-0.5 border rounded px-0.5 py-0.5 text-xs bg-white ${original.saleType ? "text-gray-900" : "text-gray-400"}`}
+                                        title="新品・中古、売りつけ・リース"
+                                        value={original.saleType ?? ""}
+                                        onChange={(e) => setItemSaleType(g.id, item.id, e.target.value as SaleType)}
+                                      >
+                                        <option value="">区分なし</option>
+                                        {SALE_TYPES.map((t) => (
+                                          <option key={t} value={t}>{t}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </>
                                 )}
                               </td>
                               <td className="p-1 border min-w-[11rem]">
@@ -1214,7 +1307,9 @@ export default function QuoteBuilderPage() {
                                         onClick={() => pickCandidate(g.id, original, c)}
                                       >
                                         {c.name} {displayText(c.specification)} / {c.unit} <b>¥{c.unitPrice.toLocaleString("ja-JP")}</b>
-                                        <span className="text-gray-500"> {c.category} {c.date ?? "日付不明"}</span>
+                                        <span className="text-gray-500">
+                                          {" "}{c.category}{c.saleType && `（${c.saleType}）`} {c.date ?? "日付不明"}{c.company && ` ${c.company}`}
+                                        </span>
                                       </button>
                                     ))}
                                   </div>
@@ -1490,6 +1585,56 @@ export default function QuoteBuilderPage() {
                   )}
                 </div>
 
+                {canRegister ? (
+                  <div className="text-sm mb-3">
+                    <label className="flex items-start gap-2">
+                      <input type="checkbox" className="mt-1" checked={registerPrices} onChange={(e) => setRegisterPrices(e.target.checked)} />
+                      <span>
+                        保存する時に、単価表にない単価・変えた単価を「材料単価」にも登録する（会社名「{cover.client.trim() || "宛先なし"}」）
+                        <span className="block text-xs text-gray-600">
+                          新しく保存：{regSummary(regNew)}
+                          {linked && ` ／ 上書き保存：${regSummary(regOverwrite)}（この見積りから前に登録した単価と入れ替え）`}
+                          {regNew.length > 0 && (
+                            <button type="button" className="ml-2 text-blue-600 hover:underline" onClick={() => setShowRegList((v) => !v)}>
+                              {showRegList ? "閉じる" : "登録する単価を見る"}
+                            </button>
+                          )}
+                        </span>
+                      </span>
+                    </label>
+                    {showRegList && regNew.length > 0 && (
+                      <div className="overflow-x-auto mt-2 ml-6">
+                        <table className="text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-gray-100 text-left">
+                              <th className="p-1 border">一覧</th>
+                              <th className="p-1 border">名称</th>
+                              <th className="p-1 border">規格</th>
+                              <th className="p-1 border">単位</th>
+                              <th className="p-1 border text-right">単価</th>
+                              <th className="p-1 border">区分</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {regNew.map((r, i) => (
+                              <tr key={i}>
+                                <td className="p-1 border whitespace-nowrap">{r.category}</td>
+                                <td className="p-1 border">{r.name}</td>
+                                <td className="p-1 border">{displayText(r.specification)}</td>
+                                <td className="p-1 border">{r.unit}</td>
+                                <td className="p-1 border text-right whitespace-nowrap">{yen(r.unit_price)}</td>
+                                <td className="p-1 border whitespace-nowrap">{r.sale_type}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mb-3">材料単価にも登録するには「材料単価」の「操作」以上の権限が必要です（見積りの保存はできます）。</p>
+                )}
+
                 <p className="text-sm mb-2">
                   {linked ? (
                     <>
@@ -1515,7 +1660,7 @@ export default function QuoteBuilderPage() {
                     disabled={saving || !linked?.id}
                     title={linked ? `「${linked.title}」を上書きします` : "保存した見積りを開いた時・保存した後に使えます"}
                     onClick={() => {
-                      setSaveMsg(null);
+                      setSaveMsgs([]);
                       setConfirmOverwrite(true);
                     }}
                   >
@@ -1532,6 +1677,13 @@ export default function QuoteBuilderPage() {
                       いまの内容（件名「{cover.title || "（件名なし）"}」／ 見積日 {date || "なし"} ／ 税抜 {yen(coverCalc.subtotal)}）で置き換えます。
                       上書きすると、元の内容には戻せません。
                     </p>
+                    {registerPrices && canRegister && (
+                      <p className="mt-1">
+                        {canReplace
+                          ? `材料単価の、この見積りから前に登録した単価も、いまの内容（${regSummary(regOverwrite)}）に入れ替えます。`
+                          : `材料単価には、単価表にない単価・変えた単価（${regSummary(regNew)}）を足します。`}
+                      </p>
+                    )}
                     {linked.sourceFile && (
                       <p className="text-red-700 mt-1">
                         これはExcelから登録した過去の見積り（{linked.sourceFile}）です。上書きすると、登録した時の内訳がいまの内容に変わります。
@@ -1554,7 +1706,9 @@ export default function QuoteBuilderPage() {
                     </div>
                   </div>
                 )}
-                {saveMsg && <p className={`text-sm mt-3 ${saveMsg.ok ? "text-green-700" : "text-red-600"}`}>{saveMsg.text}</p>}
+                {saveMsgs.map((m, i) => (
+                  <p key={i} className={`text-sm mt-2 ${m.ok ? "text-green-700" : "text-red-600"}`}>{m.text}</p>
+                ))}
               </>
             )}
           </section>

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
 import { LEVEL_EDIT, LEVEL_OPERATE, LEVEL_VIEW } from "@/lib/permissions";
 import { isFuzzyMatch } from "@/lib/fuzzyMatch";
+import { SALE_TYPES } from "@/lib/quote/types";
 
 interface MaterialPrice {
   id: string;
@@ -16,6 +17,8 @@ interface MaterialPrice {
   unit_price: number;
   source_file: string;
   updated_at: string;
+  sale_type?: string | null; // 材料の区分（新品売りつけ・中古売りつけ・新品リース・中古リース）
+  company_name?: string | null; // 見積り作成で保存した見積りの宛先
 }
 
 const PAGE_SIZE = 50;
@@ -63,6 +66,23 @@ export default function MaterialPricesPage() {
   const [addSpec, setAddSpec] = useState("");
   const [addUnit, setAddUnit] = useState("");
   const [addPrice, setAddPrice] = useState("");
+  const [addSaleType, setAddSaleType] = useState("");
+
+  // 取込元の見積りの宛先（見積り事例に登録してある見積りのファイル名 → 宛先）
+  const [caseClients, setCaseClients] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    supabase
+      .from("quote_cases")
+      .select("source_file, client")
+      .neq("source_file", "")
+      .then(({ data }) => {
+        const map = new Map<string, string>();
+        for (const r of (data ?? []) as { source_file: string; client: string }[]) if (r.client) map.set(r.source_file, r.client);
+        setCaseClients(map);
+      });
+  }, []);
+  // 会社名：見積り作成で保存した見積りから登録した単価はその宛先、Excelから取り込んだ単価は見積り事例の宛先
+  const companyOf = (item: MaterialPrice) => item.company_name || caseClients.get(item.source_file.replace(/ \[[^\]]*\]$/, "")) || "";
   const [addSubmitting, setAddSubmitting] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -359,6 +379,7 @@ export default function MaterialPricesPage() {
       unit: addUnit.trim(),
       unit_price: price,
       source_file: "手動追加",
+      ...(activeTab === "材料費" && addSaleType ? { sale_type: addSaleType } : {}),
     });
 
     if (error) {
@@ -372,6 +393,8 @@ export default function MaterialPricesPage() {
     }
     setAddSubmitting(false);
   };
+
+  const colCount = 6 + (activeTab === "材料費" ? 1 : 0) + (canEdit ? 1 : 0);
 
   const sortIcon = (key: keyof MaterialPrice) => {
     if (sortKey !== key) return "";
@@ -554,6 +577,15 @@ export default function MaterialPricesPage() {
               <input type="text" value={addUnit} onChange={(e) => setAddUnit(e.target.value)}
                 placeholder="m, 個" className="border rounded p-2 w-full" />
             </div>
+            {activeTab === "材料費" && (
+              <div className="w-32">
+                <label className="text-xs text-gray-500 block mb-1">区分</label>
+                <select value={addSaleType} onChange={(e) => setAddSaleType(e.target.value)} className="border rounded p-2 w-full bg-white">
+                  <option value="">区分なし</option>
+                  {SALE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
             <div className="w-28">
               <label className="text-xs text-gray-500 block mb-1">単価 *</label>
               <input type="number" value={addPrice} onChange={(e) => setAddPrice(e.target.value)}
@@ -752,6 +784,15 @@ export default function MaterialPricesPage() {
               >
                 単価{sortIcon("unit_price")}
               </th>
+              {activeTab === "材料費" && (
+                <th
+                  className="border p-2 text-left cursor-pointer hover:bg-gray-200 whitespace-nowrap"
+                  onClick={() => handleSort("sale_type")}
+                >
+                  区分{sortIcon("sale_type")}
+                </th>
+              )}
+              <th className="border p-2 text-left whitespace-nowrap">会社名</th>
               <th
                 className="border p-2 text-left cursor-pointer hover:bg-gray-200 whitespace-nowrap"
                 onClick={() => handleSort("source_file")}
@@ -763,9 +804,9 @@ export default function MaterialPricesPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={canEdit ? 6 : 5} className="border p-4 text-center text-gray-400">読込中...</td></tr>
+              <tr><td colSpan={colCount} className="border p-4 text-center text-gray-400">読込中...</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={canEdit ? 6 : 5} className="border p-4 text-center text-gray-400">データがありません</td></tr>
+              <tr><td colSpan={colCount} className="border p-4 text-center text-gray-400">データがありません</td></tr>
             ) : (
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
@@ -773,6 +814,8 @@ export default function MaterialPricesPage() {
                   <td className="border p-2">{item.specification}</td>
                   <td className="border p-2">{item.unit}</td>
                   <td className="border p-2 text-right">¥{Number(item.unit_price).toLocaleString("ja-JP")}</td>
+                  {activeTab === "材料費" && <td className="border p-2 text-xs whitespace-nowrap">{item.sale_type}</td>}
+                  <td className="border p-2 text-xs">{companyOf(item)}</td>
                   <td className="border p-2 text-xs text-gray-500">{item.source_file}</td>
                   {canEdit && (
                     <td className="border p-2 text-center">

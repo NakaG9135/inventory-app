@@ -1,6 +1,6 @@
 import { isFuzzyMatch } from "@/lib/fuzzyMatch";
 import { normKey, normKeyLoose } from "./normalize";
-import type { QuoteItem, Section } from "./types";
+import type { QuoteItem, SaleType, Section } from "./types";
 
 // material_prices の1行
 export type PriceRow = {
@@ -13,6 +13,9 @@ export type PriceRow = {
   source_file: string;
   created_at: string | null;
   updated_at: string | null;
+  sale_type?: string | null;
+  company_name?: string | null;
+  quote_case_id?: string | null;
 };
 
 export type PriceCandidate = {
@@ -23,6 +26,8 @@ export type PriceCandidate = {
   category: string;
   date: string | null; // YYYY-MM-DD
   sourceFile: string;
+  saleType: string; // 材料の区分（空＝区分なし）
+  company: string; // 見積りの宛先（見積り作成で保存した見積りから登録した単価）
 };
 
 export type PriceIndex = {
@@ -87,6 +92,8 @@ export function buildPriceIndex(rows: PriceRow[]): PriceIndex {
       category: r.category ?? "",
       date: priceDate(r),
       sourceFile: r.source_file ?? "",
+      saleType: r.sale_type ?? "",
+      company: r.company_name ?? "",
     };
     index.all.push(c);
     push(index.exact, key(c.name, c.specification), c);
@@ -119,20 +126,32 @@ export function isStale(date: string | null, staleDays: number, today: Date = ne
   return (today.getTime() - t.getTime()) / 86400000 > staleDays;
 }
 
+// 区分のある材料：同じ区分の単価 → 区分なしの単価 の順に使う（別の区分の単価は使わない）。
+// 区分なしの材料：区分なしの単価を先に使い、なければ区分のある単価も使う。null＝材料以外（区分を見ない）
+function matchSaleType(list: PriceCandidate[] | undefined, saleType: SaleType | null): PriceCandidate[] {
+  if (!list || saleType === null) return list ?? [];
+  const plain = list.filter((c) => !c.saleType);
+  if (!saleType) return plain.length > 0 ? plain : list;
+  const same = list.filter((c) => c.saleType === saleType);
+  return same.length > 0 ? same : plain;
+}
+
 export function lookupPrice(
   index: PriceIndex,
-  item: Pick<QuoteItem, "name" | "spec" | "section">,
+  item: Pick<QuoteItem, "name" | "spec" | "section" | "saleType">,
   staleDays: number,
   today?: Date,
 ): PriceLookup | null {
-  const list = index.exact.get(key(item.name, item.spec)) ?? index.loose.get(looseKey(item.name, item.spec));
-  if (list && list.length > 0) {
+  const saleType = item.section === "material" ? (item.saleType ?? "") : null;
+  const exact = matchSaleType(index.exact.get(key(item.name, item.spec)), saleType);
+  const list = exact.length > 0 ? exact : matchSaleType(index.loose.get(looseKey(item.name, item.spec)), saleType);
+  if (list.length > 0) {
     const candidate = newest(preferCategory(list, item.section));
     return { candidate, stale: isStale(candidate.date, staleDays, today), nameOnly: false };
   }
   // 規格が一致しなくても、同じ名称の単価が（規格ごとの最新で）1種類しかなければそれを使う
-  const byName = index.byName.get(normKey(item.name));
-  if (!byName || byName.length === 0) return null;
+  const byName = matchSaleType(index.byName.get(normKey(item.name)), saleType);
+  if (byName.length === 0) return null;
   const perSpec = new Map<string, PriceCandidate[]>();
   for (const c of preferCategory(byName, item.section)) push(perSpec, normKey(c.specification), c);
   const latest = [...perSpec.values()].map(newest);
@@ -146,7 +165,7 @@ export function suggestPrices(index: PriceIndex, item: Pick<QuoteItem, "name" | 
   const name = String(item.name ?? "").trim();
   if (!name) return [];
   const pool = new Map<string, PriceCandidate[]>();
-  const add = (c: PriceCandidate) => push(pool, key(c.name, c.specification), c);
+  const add = (c: PriceCandidate) => push(pool, `${key(c.name, c.specification)}|${c.saleType}`, c);
 
   for (const c of index.byName.get(normKey(name)) ?? []) add(c);
   if (pool.size < limit) {

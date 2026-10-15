@@ -9,6 +9,10 @@ export const SECTION_LABELS: Record<Section, string> = {
   other: "その他",
 };
 
+// 材料の区分（売りつけ・リースと新品・中古で単価が違う）。空＝区分なし
+export const SALE_TYPES = ["新品売りつけ", "中古売りつけ", "新品リース", "中古リース"] as const;
+export type SaleType = (typeof SALE_TYPES)[number] | "";
+
 // 自動計算する行（雑材料消耗品＝端数調整、返納整備費＝レンタル使用料×5%）
 export type AutoKind = "misc" | "return";
 
@@ -35,6 +39,8 @@ export type QuoteItem = {
   stale: boolean;
   note: string;
   auto?: AutoKind;
+  // 材料の区分（材料費の行だけ）。単価表の同じ区分の単価を優先して当てる
+  saleType?: SaleType;
   // 単価表にない時に使う単価（過去の見積りから作った下書きの、その見積りでの単価）
   fallback?: { unitPrice: number; date: string | null; file: string };
   // 材料に合わせて自動で足した（added）・直した（updated）労務の行。
