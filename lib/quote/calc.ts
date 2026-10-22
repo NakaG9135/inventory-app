@@ -128,6 +128,8 @@ export type CoverCalc = {
   tax: number;
   total: number;
   roundUnit: number;
+  // 自動で計算した時の金額（金額を直接入れた・消した行の目安）
+  auto: { removal: number; overhead: number; welfare: number };
 };
 
 // 税抜小計を切り上げる単位（自動：500万円未満は1万円、以上は10万円）
@@ -140,11 +142,15 @@ export function calcCover(groups: GroupCalc[], extras: CoverExtra[], s: QuoteSet
   const labor = groups.reduce((t, g) => t + g.labor, 0);
   const maintenance = groups.reduce((t, g) => t + g.maintenanceLabor, 0);
 
+  // 消した行は0円。金額を直接入れた行はその金額
+  const removed = new Set(s.removedFixed ?? []);
   // 撤去労務費 = 労務費 × 0.4 を千円単位に切り上げ
-  const removal = s.removalOverride ?? ceilTo(labor * s.removalRate, s.removalRoundUnit);
+  const autoRemoval = ceilTo(labor * s.removalRate, s.removalRoundUnit);
+  const removal = removed.has("removal") ? 0 : (s.removalOverride ?? autoRemoval);
   // 法定福利費 = （労務費＋撤去費）× 16.56%
   const welfareLabor = labor + maintenance + removal;
-  const welfare = Math.round(welfareLabor * s.welfareRate);
+  const autoWelfare = Math.round(welfareLabor * s.welfareRate);
+  const welfare = removed.has("welfare") ? 0 : (s.welfareOverride ?? autoWelfare);
 
   const extrasTotal = extras.reduce((t, e) => t + e.qty * e.unitPrice, 0);
   const nonWelfareTotal = groupTotals.reduce((t, v) => t + v, 0) + removal + extrasTotal;
@@ -152,7 +158,8 @@ export function calcCover(groups: GroupCalc[], extras: CoverExtra[], s: QuoteSet
   // 諸経費 = 法定福利費以外の計 × 10% を目安に、税抜小計がキリの良い金額になるよう調整
   const estimate = nonWelfareTotal * (1 + s.overheadRate) + welfare;
   const roundUnit = s.subtotalRoundUnit > 0 ? s.subtotalRoundUnit : autoRoundUnit(estimate);
-  const overhead = s.overheadOverride ?? Math.max(0, ceilTo(estimate, roundUnit) - nonWelfareTotal - welfare);
+  const autoOverhead = Math.max(0, ceilTo(estimate, roundUnit) - nonWelfareTotal - welfare);
+  const overhead = removed.has("overhead") ? 0 : (s.overheadOverride ?? autoOverhead);
   const subtotal = nonWelfareTotal + overhead + welfare;
   const tax = Math.round(subtotal * s.taxRate);
   return {
@@ -168,5 +175,6 @@ export function calcCover(groups: GroupCalc[], extras: CoverExtra[], s: QuoteSet
     tax,
     total: subtotal + tax,
     roundUnit,
+    auto: { removal: autoRemoval, overhead: autoOverhead, welfare: autoWelfare },
   };
 }
