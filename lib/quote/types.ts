@@ -77,6 +77,9 @@ export type FixedRemarks = { removal: string; overhead: string; welfare: string 
 
 export const EMPTY_FIXED_REMARKS: FixedRemarks = { removal: "", overhead: "", welfare: "" };
 
+// 見積書の決まった行
+export type FixedKey = keyof FixedRemarks;
+
 export type CoverInfo = {
   client: string;
   title: string;
@@ -95,8 +98,12 @@ export type QuoteSettings = {
   subtotalRoundUnit: number; // 税抜小計をこの単位に切り上げる（諸経費で調整）。0 = 自動
   taxRate: number;
   staleDays: number; // これより古い単価は「要確認」
+  // 決まった行の金額を直接入れた時の金額（null＝自動）。新しい見積りを始める時に空に戻す
   removalOverride: number | null;
   overheadOverride: number | null;
+  welfareOverride: number | null;
+  // 見積書から消した決まった行
+  removedFixed: FixedKey[];
 };
 
 export const DEFAULT_SETTINGS: QuoteSettings = {
@@ -112,4 +119,6 @@ export const DEFAULT_SETTINGS: QuoteSettings = {
   staleDays: 365,
   removalOverride: null,
   overheadOverride: null,
+  welfareOverride: null,
+  removedFixed: [],
 };

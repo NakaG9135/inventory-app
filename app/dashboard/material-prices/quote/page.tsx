@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import NoteLines from "@/components/NoteLines";
 import QuoteConditionsForm from "@/components/QuoteConditionsForm";
 import { usePermissions } from "@/components/PermissionsProvider";
@@ -65,6 +65,7 @@ import {
   SECTION_LABELS,
   type CoverExtra,
   type CoverInfo,
+  type FixedKey,
   type FixedRemarks,
   type QuoteGroup,
   type QuoteItem,
@@ -98,6 +99,13 @@ const UNITS = ["ｍ", "本", "台", "面", "ヶ所", "ケ", "組", "式", "回",
 
 const yen = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`;
 const num = (n: number | null) => (n === null ? "" : n.toLocaleString("ja-JP"));
+
+// 見積書の決まった行と、金額を直接入れた時に入れる設定
+const OVERRIDE_KEY: Record<FixedKey, "removalOverride" | "overheadOverride" | "welfareOverride"> = {
+  removal: "removalOverride",
+  overhead: "overheadOverride",
+  welfare: "welfareOverride",
+};
 
 function regSummary(rows: PriceRegistration[]): string {
   const parts = ["材料費", "労務費", "その他"]
@@ -380,6 +388,7 @@ export default function QuoteBuilderPage() {
       const draft = draftFromCase(c, index, { durationMonths: query.durationMonths, staleDays: settings.staleDays });
       setGroups(draft.groups);
       setExtras(draft.extras);
+      resetFixedRows();
       setWarnings(draft.messages);
       setBaseCase(info);
       setOpened(null);
@@ -402,6 +411,7 @@ export default function QuoteBuilderPage() {
       const data = await file.arrayBuffer();
       setFileName(file.name);
       setFileData(data);
+      resetFixedRows();
       setBaseCase(null);
       setOpened(null);
       linkTo(null);
@@ -421,6 +431,7 @@ export default function QuoteBuilderPage() {
     setDate(todayString());
     setCoverNotes([]);
     setFixedRemarks(EMPTY_FIXED_REMARKS);
+    resetFixedRows();
     setExtras([{ id: newId("x"), ...EXTRA_PRESETS[0] }]);
     setWarnings([]);
     setFileName("");
@@ -449,6 +460,8 @@ export default function QuoteBuilderPage() {
       if (q.settings) {
         setSettings(q.settings);
         setSettingsVersion((v) => v + 1);
+      } else {
+        resetFixedRows();
       }
       setCover((cv) => ({ ...cv, client: c.client, title: c.title }));
       setDate(c.quoteDate ?? todayString());
@@ -611,13 +624,69 @@ export default function QuoteBuilderPage() {
 
   const setSetting = (key: keyof QuoteSettings, value: string, percent = false) => {
     const v = value.trim();
-    if (key === "removalOverride" || key === "overheadOverride") {
-      setSettings((s) => ({ ...s, [key]: v === "" ? null : Number(v.replace(/,/g, "")) }));
-      return;
-    }
     const n = Number(v);
     if (v === "" || isNaN(n)) return;
     setSettings((s) => ({ ...s, [key]: percent ? n / 100 : n }));
+  };
+
+  // 見積書の決まった行（撤去労務費・諸経費・法定福利費）：金額を直接入れる（空なら自動）・消す・戻す
+  const setFixedAmount = (k: FixedKey, value: string) => {
+    const v = value.replace(/[,，¥￥\s]/g, "");
+    const n = Number(v);
+    if (v !== "" && (isNaN(n) || n < 0)) return;
+    setSettings((s) => ({ ...s, [OVERRIDE_KEY[k]]: v === "" ? null : Math.round(n) }));
+  };
+  const setFixedRemoved = (k: FixedKey, removed: boolean) =>
+    setSettings((s) => {
+      const rest = (s.removedFixed ?? []).filter((x) => x !== k);
+      return { ...s, removedFixed: removed ? [...rest, k] : rest };
+    });
+  // 新しい見積りを始める時は、決まった行の手入力の金額と消した行を元に戻す
+  const resetFixedRows = () =>
+    setSettings((s) => ({ ...s, removalOverride: null, overheadOverride: null, welfareOverride: null, removedFixed: [] }));
+
+  // 見積書の行の表の、決まった行（金額は空なら自動。消した行は灰色で「戻す」）
+  const fixedRow = (k: FixedKey, label: string, how: ReactNode) => {
+    const override = settings[OVERRIDE_KEY[k]];
+    if ((settings.removedFixed ?? []).includes(k)) {
+      return (
+        <tr key={k} className="text-gray-400">
+          <td className="pr-6 py-0.5"><span className="line-through">{label}</span> <span className="text-xs">（消しました。見積書に入りません）</span></td>
+          <td className="text-right">—</td>
+          <td></td>
+          <td className="pl-2 whitespace-nowrap">
+            <button type="button" className="text-xs text-blue-600 hover:underline" onClick={() => setFixedRemoved(k, false)}>戻す</button>
+          </td>
+        </tr>
+      );
+    }
+    return (
+      <tr key={k}>
+        <td className="pr-6 py-0.5">
+          {label}{" "}
+          <span className="text-xs text-gray-500">{override === null ? how : `（手入力。自動なら ${yen(coverCalc.auto[k])}）`}</span>
+        </td>
+        <td className="text-right whitespace-nowrap">
+          <input
+            className={`${input} w-28 text-right placeholder:text-gray-800 ${override === null ? "" : "bg-yellow-50 border-yellow-400"}`}
+            inputMode="numeric"
+            aria-label={`${label}の金額`}
+            value={override ?? ""}
+            placeholder={num(coverCalc.auto[k])}
+            onChange={(e) => setFixedAmount(k, e.target.value)}
+          />
+        </td>
+        <td className="pl-4 py-0.5">
+          <input className={`${input} w-56`} value={fixedRemarks[k]} onChange={(e) => setFixedRemarks({ ...fixedRemarks, [k]: e.target.value })} />
+        </td>
+        <td className="pl-2 whitespace-nowrap">
+          {override !== null && (
+            <button type="button" className="text-xs text-blue-600 hover:underline mr-2" onClick={() => setFixedAmount(k, "")}>自動に戻す</button>
+          )}
+          <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setFixedRemoved(k, true)}>削除</button>
+        </td>
+      </tr>
+    );
   };
 
   // 自社情報を次からの既定値として保存する（DBが使えない時はこのブラウザに覚える）
@@ -1434,6 +1503,9 @@ export default function QuoteBuilderPage() {
             </div>
 
             <h3 className="text-sm font-bold mt-2 mb-1">見積書の行と摘要</h3>
+            <p className="text-xs text-gray-600 mb-1">
+              撤去労務費・諸経費・法定福利費は、金額を入れるとその金額になります（空にすると自動の計算に戻ります）。「削除」で見積書から外せます。
+            </p>
             <div className="overflow-x-auto">
               <table className="text-sm mb-3">
                 <thead>
@@ -1441,6 +1513,7 @@ export default function QuoteBuilderPage() {
                     <th className="pr-6 font-normal"></th>
                     <th className="text-right font-normal">金額</th>
                     <th className="pl-4 font-normal">摘要（見積書の右端の欄）</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1451,15 +1524,10 @@ export default function QuoteBuilderPage() {
                       <td className="pl-4 py-0.5">
                         <input className={`${input} w-56`} value={g.remark ?? ""} onChange={(e) => updateGroup(g.id, (x) => ({ ...x, remark: e.target.value }))} />
                       </td>
+                      <td></td>
                     </tr>
                   ))}
-                  <tr>
-                    <td className="pr-6 py-0.5">撤去労務費 <span className="text-xs text-gray-500">（労務費 {yen(coverCalc.labor)} × {Math.round(settings.removalRate * 100)}%）</span></td>
-                    <td className="text-right whitespace-nowrap">{yen(coverCalc.removal)}</td>
-                    <td className="pl-4 py-0.5">
-                      <input className={`${input} w-56`} value={fixedRemarks.removal} onChange={(e) => setFixedRemarks({ ...fixedRemarks, removal: e.target.value })} />
-                    </td>
-                  </tr>
+                  {fixedRow("removal", "撤去労務費", `（労務費 ${yen(coverCalc.labor)} × ${Math.round(settings.removalRate * 100)}%）`)}
                   {extras.map((x) => (
                     <tr key={x.id}>
                       <td className="pr-6 py-0.5">{x.name}</td>
@@ -1467,24 +1535,21 @@ export default function QuoteBuilderPage() {
                       <td className="pl-4 py-0.5">
                         <input className={`${input} w-56`} value={x.remark ?? ""} onChange={(e) => updateExtra(x.id, { remark: e.target.value })} />
                       </td>
+                      <td className="pl-2">
+                        <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setExtras((xs) => xs.filter((y) => y.id !== x.id))}>
+                          削除
+                        </button>
+                      </td>
                     </tr>
                   ))}
+                  {fixedRow(
+                    "overhead",
+                    "諸経費",
+                    `（約${Math.round(settings.overheadRate * 100)}%、税抜小計を${coverCalc.roundUnit.toLocaleString("ja-JP")}円単位にそろえる）`,
+                  )}
+                  {fixedRow("welfare", "法定福利費", `（労務費総額 ${yen(coverCalc.welfareLabor)} × ${(settings.welfareRate * 100).toFixed(2)}%）`)}
                   <tr>
-                    <td className="pr-6 py-0.5">諸経費 <span className="text-xs text-gray-500">（約{Math.round(settings.overheadRate * 100)}%、税抜小計を{coverCalc.roundUnit.toLocaleString("ja-JP")}円単位にそろえる）</span></td>
-                    <td className="text-right whitespace-nowrap">{yen(coverCalc.overhead)}</td>
-                    <td className="pl-4 py-0.5">
-                      <input className={`${input} w-56`} value={fixedRemarks.overhead} onChange={(e) => setFixedRemarks({ ...fixedRemarks, overhead: e.target.value })} />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="pr-6 py-0.5">法定福利費 <span className="text-xs text-gray-500">（労務費総額 {yen(coverCalc.welfareLabor)} × {(settings.welfareRate * 100).toFixed(2)}%）</span></td>
-                    <td className="text-right whitespace-nowrap">{yen(coverCalc.welfare)}</td>
-                    <td className="pl-4 py-0.5">
-                      <input className={`${input} w-56`} value={fixedRemarks.welfare} onChange={(e) => setFixedRemarks({ ...fixedRemarks, welfare: e.target.value })} />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td colSpan={3} className="py-2">
+                    <td colSpan={4} className="py-2">
                       <p className="text-xs text-gray-600 mb-1">※の注意書き（見積書の「10％対象 税抜小計」の上に入ります）</p>
                       <div className="max-w-3xl">
                         <NoteLines notes={coverNotes} placeholder="例：解体工事の見積りは別途" onChange={setCoverNotes} />
@@ -1526,9 +1591,6 @@ export default function QuoteBuilderPage() {
                 <label>撤去労務費（労務費の%）
                   <input className={`${input} w-full`} defaultValue={settings.removalRate * 100} onChange={(e) => setSetting("removalRate", e.target.value, true)} />
                 </label>
-                <label>撤去労務費を直接入力（空なら自動）
-                  <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.removalOverride ?? ""} onChange={(e) => setSetting("removalOverride", e.target.value)} />
-                </label>
                 <label>法定福利費（%）
                   <input className={`${input} w-full`} defaultValue={settings.welfareRate * 100} onChange={(e) => setSetting("welfareRate", e.target.value, true)} />
                 </label>
@@ -1540,9 +1602,6 @@ export default function QuoteBuilderPage() {
                     <option value={0}>自動（500万円未満は1万円、以上は10万円）</option>
                     {[1000, 5000, 10000, 100000].map((u) => <option key={u} value={u}>{u.toLocaleString("ja-JP")}</option>)}
                   </select>
-                </label>
-                <label>諸経費を直接入力（空なら自動）
-                  <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.overheadOverride ?? ""} onChange={(e) => setSetting("overheadOverride", e.target.value)} />
                 </label>
                 <label>この日数より古い単価は「要確認」
                   <input className={`${input} w-full`} inputMode="numeric" defaultValue={settings.staleDays} onChange={(e) => setSetting("staleDays", e.target.value)} />
