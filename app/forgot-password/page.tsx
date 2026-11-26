@@ -7,6 +7,12 @@ import BirthDateInput from "@/components/BirthDateInput";
 import ShowPasswordToggle from "@/components/ShowPasswordToggle";
 import { PASSWORD_RULES, PASSWORD_RULE_MESSAGE, isValidPassword } from "@/lib/password";
 
+// 再設定メールの差出人・件名・リンクの文言。これらは Supabase の画面で決めているので、そちらを変えたらここも合わせる
+// （差出人の名前＝Authentication → SMTP Settings の Sender name、件名とリンク＝Email Templates → Reset Password）
+const RESET_MAIL_SENDER = "丸弘 佐々木電設 株式会社";
+const RESET_MAIL_SUBJECT = "【在庫管理システム】パスワードの再設定";
+const RESET_MAIL_LINK_TEXT = "パスワードを再設定する";
+
 const NETWORK_ERROR = "通信できませんでした。電波やWi-Fiの状態を確認して、もう一度お試しください。";
 const isNetworkError = (m: string) => m.includes("failed to fetch") || m.includes("network") || m.includes("load failed");
 
@@ -153,12 +159,12 @@ export default function ForgotPasswordPage() {
               <span className="font-semibold break-all">{email.trim()}</span> が登録されていれば、再設定用のメールが届きます。
             </p>
             <ol className="list-decimal pl-5 space-y-1">
-              <li>届いたメールの中のリンク（Reset Password）を開く</li>
+              <li>届いたメールの中のリンク「{RESET_MAIL_LINK_TEXT}」を開く</li>
               <li>開いた画面で新しいパスワードを決める</li>
               <li>このアプリに戻って、新しいパスワードでログインする</li>
             </ol>
             <p className="text-xs text-gray-500">
-              メールは英語で届くことがあります（件名「Reset Your Password」）。数分待っても届かない時は、迷惑メールのフォルダと、
+              メールは「{RESET_MAIL_SENDER}」から、件名「{RESET_MAIL_SUBJECT}」で届きます。数分待っても届かない時は、迷惑メールのフォルダと、
               メールアドレスが登録した時のものかを確認してください。それでも届かない場合は、社長にパスワードの再設定を依頼してください。
             </p>
             {backToLogin}
