@@ -4,12 +4,14 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import { PASSWORD_RULES, PASSWORD_RULE_MESSAGE, isValidPassword } from "@/lib/password";
+import ShowPasswordToggle from "@/components/ShowPasswordToggle";
 
 export default function RegisterPage() {
   const [lastName, setLastName] = useState("");
   const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState(false);
   const [duplicateWarnings, setDuplicateWarnings] = useState<string[]>([]);
@@ -128,12 +130,14 @@ export default function RegisterPage() {
           className="border p-2 w-full mb-2"
         />
         <input
-          type="password"
+          type={show ? "text" : "password"}
           placeholder="パスワード（必須）"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
           className="border p-2 w-full mb-1"
         />
+        <ShowPasswordToggle checked={show} onChange={setShow} />
         <ul className="text-xs text-gray-500 mb-2 pl-1 space-y-0.5">
           {PASSWORD_RULES.map((rule) => <li key={rule}>・{rule}</li>)}
         </ul>
