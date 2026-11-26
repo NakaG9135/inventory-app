@@ -100,7 +100,7 @@ export default function LoggedInUser() {
         >
           <div className="max-w-full bg-white rounded-2xl shadow-2xl px-6 py-8 md:px-12 md:py-10 text-center">
             <p className="text-xl md:text-3xl font-bold text-gray-800">お疲れ様です。</p>
-            <p className="mt-3 text-2xl md:text-4xl font-bold text-blue-700 break-words">{name} 様、</p>
+            <p className="mt-3 text-2xl md:text-4xl font-bold text-blue-700 break-words">{name} 様</p>
             <p className="mt-3 text-xl md:text-3xl font-bold text-gray-800">ただいまログイン中</p>
           </div>
         </div>

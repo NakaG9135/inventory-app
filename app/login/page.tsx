@@ -88,7 +88,7 @@ export default function LoginPage() {
         .eq("email", email);
 
       // 接続ログに「ログイン」として記録する
-      // あいさつ（お疲れ様です。〇〇様、ただいまログイン中）も、ログインのたびに出す
+      // あいさつ（お疲れ様です。〇〇様 ただいまログイン中）も、ログインのたびに出す
       try {
         sessionStorage.setItem("justLoggedIn", "1");
         sessionStorage.removeItem("accessLogged");
