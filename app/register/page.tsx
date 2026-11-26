@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import { PASSWORD_RULES, PASSWORD_RULE_MESSAGE, isValidPassword } from "@/lib/password";
 
 export default function RegisterPage() {
   const [lastName, setLastName] = useState("");
@@ -23,10 +24,8 @@ export default function RegisterPage() {
     }
 
     // パスワード強度チェック
-    const passwordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{10,}$/;
-    if (!passwordRegex.test(password)) {
-      setError("パスワードは大文字・小文字・数字・記号を含み10文字以上にしてください");
+    if (!isValidPassword(password)) {
+      setError(PASSWORD_RULE_MESSAGE);
       return;
     }
 
@@ -136,11 +135,7 @@ export default function RegisterPage() {
           className="border p-2 w-full mb-1"
         />
         <ul className="text-xs text-gray-500 mb-2 pl-1 space-y-0.5">
-          <li>・10文字以上</li>
-          <li>・大文字（A〜Z）を含む</li>
-          <li>・小文字（a〜z）を含む</li>
-          <li>・数字（0〜9）を含む</li>
-          <li>・記号（! @ # $ % ^ &amp; *）のいずれかを含む</li>
+          {PASSWORD_RULES.map((rule) => <li key={rule}>・{rule}</li>)}
         </ul>
         <button
           onClick={handleRegister}

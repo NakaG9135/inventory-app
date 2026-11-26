@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissions } from "@/components/PermissionsProvider";
 import EmployeeSubTable, { type FieldDef } from "@/components/EmployeeSubTable";
+import EmployeeAccount from "@/components/EmployeeAccount";
 import {
   DEPARTMENTS,
   MARITAL_STATUSES,
@@ -32,6 +33,7 @@ const TABS = [
   ["quals", "免許・資格"],
   ["payments", "慶弔金"],
   ["leaves", "休暇"],
+  ["account", "アカウント"],
   ["access", "接続ログ"],
   ["location", "位置情報"],
 ] as const;
@@ -430,6 +432,8 @@ export default function EmployeeDetailPage() {
             )}
           />
         )}
+
+        {tab === "account" && <EmployeeAccount userId={emp.user_id} name={emp.name} birthDate={emp.birth_date} />}
 
         {tab === "access" && (
           !emp.user_id ? <p className="text-sm text-gray-400">アカウントがないため、接続ログはありません</p> :

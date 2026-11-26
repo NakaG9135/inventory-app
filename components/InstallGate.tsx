@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { recoveryLinkHash } from "@/lib/recoveryLink";
 
 // Chrome / Edge / Android の「インストール」イベント
 type BeforeInstallPromptEvent = Event & {
@@ -10,7 +12,10 @@ type BeforeInstallPromptEvent = Event & {
 
 type Env = "ios" | "android" | "inapp" | "desktop";
 
-const isStandalone = () =>
+// メールの「パスワード再設定」リンクはブラウザで開かれるので、この画面だけはブラウザでも使えるようにする
+const PASSWORD_RESET_PATH = "/reset-password";
+
+export const isStandalone = () =>
   ["standalone", "fullscreen", "minimal-ui", "window-controls-overlay"].some(
     (mode) => window.matchMedia(`(display-mode: ${mode})`).matches
   ) || (navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -30,8 +35,14 @@ export default function InstallGate({ children }: { children: React.ReactNode })
   const [env, setEnv] = useState<Env>("desktop");
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
+  const isPasswordReset = usePathname().startsWith(PASSWORD_RESET_PATH);
 
   useEffect(() => {
+    // 再設定リンクが別の画面に着いた時（プレビューから送ったメールなど）は、再設定の画面へ送る
+    if (recoveryLinkHash && !window.location.pathname.startsWith(PASSWORD_RESET_PATH)) {
+      window.location.replace(PASSWORD_RESET_PATH + recoveryLinkHash);
+      return;
+    }
     // 開発中（localhost）とVercelのプレビュー（PRの動作確認用）はブラウザでもそのまま使えるようにする
     const host = window.location.hostname;
     const isPreview =
@@ -60,7 +71,7 @@ export default function InstallGate({ children }: { children: React.ReactNode })
   }, []);
 
   if (mode === "checking") return null;
-  if (mode === "app") return <>{children}</>;
+  if (mode === "app" || isPasswordReset) return <>{children}</>;
 
   const handleInstall = async () => {
     if (!installEvent) return;

@@ -134,6 +134,12 @@ export default function LoginPage() {
         )}
         <p
           className="text-blue-600 mt-4 cursor-pointer"
+          onClick={() => router.push("/forgot-password")}
+        >
+          パスワードを忘れた方はこちら
+        </p>
+        <p
+          className="text-blue-600 mt-2 cursor-pointer"
           onClick={() => router.push("/register")}
         >
           新規登録はこちら
