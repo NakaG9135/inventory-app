@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { PROFILE_UPDATED_EVENT } from "@/components/LoggedInUser";
+import ShowPasswordToggle from "@/components/ShowPasswordToggle";
 
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // 現在のユーザー情報を取得
@@ -43,6 +46,8 @@ export default function ProfilePage() {
           .eq("id", user.id);
         if (error) throw error;
         changes.push("ユーザー名");
+        // 画面上部の名前表示にもすぐ反映する
+        window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT));
       }
 
       // メール変更
@@ -99,12 +104,14 @@ export default function ProfilePage() {
       <div className="mb-4">
         <label className="block mb-1">パスワード</label>
         <input
-          type="password"
+          type={show ? "text" : "password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="border p-2 w-full"
+          autoComplete="new-password"
+          className="border p-2 w-full mb-1"
           placeholder="変更する場合のみ入力"
         />
+        <ShowPasswordToggle checked={show} onChange={setShow} className="" />
       </div>
 
       <button

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import BirthDateInput from "@/components/BirthDateInput";
+import ShowPasswordToggle from "@/components/ShowPasswordToggle";
 import { PASSWORD_RULES, PASSWORD_RULE_MESSAGE, isValidPassword } from "@/lib/password";
 
 const NETWORK_ERROR = "通信できませんでした。電波やWi-Fiの状態を確認して、もう一度お試しください。";
@@ -220,10 +221,7 @@ export default function ForgotPasswordPage() {
               autoComplete="new-password"
               className="border p-2 w-full mb-1 disabled:bg-gray-100"
             />
-            <label className="text-sm text-gray-600 flex items-center gap-1 mb-2">
-              <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
-              入力したパスワードを表示する
-            </label>
+            <ShowPasswordToggle checked={show} onChange={setShow} />
             <ul className="text-xs text-gray-500 mb-3 pl-1 space-y-0.5">
               {PASSWORD_RULES.map((rule) => <li key={rule}>・{rule}</li>)}
             </ul>

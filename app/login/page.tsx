@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import { GREETING_SHOWN_KEY } from "@/components/LoggedInUser";
+import ShowPasswordToggle from "@/components/ShowPasswordToggle";
 
 // Supabase のエラーを、利用者に分かる日本語にする
 const loginErrorMessage = (message: string) => {
@@ -17,6 +19,7 @@ const loginErrorMessage = (message: string) => {
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -85,7 +88,12 @@ export default function LoginPage() {
         .eq("email", email);
 
       // 接続ログに「ログイン」として記録する
-      try { sessionStorage.setItem("justLoggedIn", "1"); sessionStorage.removeItem("accessLogged"); } catch { /* 無視 */ }
+      // あいさつ（お疲れ様です。〇〇様 ただいまログイン中）も、ログインのたびに出す
+      try {
+        sessionStorage.setItem("justLoggedIn", "1");
+        sessionStorage.removeItem("accessLogged");
+        sessionStorage.removeItem(GREETING_SHOWN_KEY);
+      } catch { /* 無視 */ }
 
       // 画面が切り替わるまで「ログイン中…」のままにする
       router.push("/dashboard");
@@ -109,14 +117,15 @@ export default function LoginPage() {
           className="border p-2 w-full mb-2 disabled:bg-gray-100"
         />
         <input
-          type="password"
+          type={show ? "text" : "password"}
           placeholder="パスワード"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           disabled={loading}
           autoComplete="current-password"
-          className="border p-2 w-full mb-2 disabled:bg-gray-100"
+          className="border p-2 w-full mb-1 disabled:bg-gray-100"
         />
+        <ShowPasswordToggle checked={show} onChange={setShow} className="mb-3" />
         <button
           type="submit"
           disabled={loading}
